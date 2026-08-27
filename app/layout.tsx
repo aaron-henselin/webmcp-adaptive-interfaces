@@ -2,17 +2,17 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Release Desk — Steam release calendar',
+  title: 'Steam Desk — Steam release calendar',
   description: 'Explore thousands of upcoming game releases and visualize the calendar with WebMCP.',
   metadataBase: new URL(process.env.SITE_ORIGIN ?? 'https://release-desk-calendar.ahenselin.chatgpt.site'),
   openGraph: {
-    title: 'Release Desk — Steam release calendar',
+    title: 'Steam Desk — Steam release calendar',
     description: 'Explore thousands of upcoming game releases and visualize the calendar with WebMCP.',
-    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Release Desk — A Steam release calendar built for agents.' }],
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Steam Desk — A Steam release calendar built for agents.' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Release Desk — Steam release calendar',
+    title: 'Steam Desk — Steam release calendar',
     description: 'Explore thousands of upcoming game releases and visualize the calendar with WebMCP.',
     images: ['/og.png'],
   },

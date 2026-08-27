@@ -232,7 +232,7 @@ export default function Home() {
         <header className="desk-header">
           <div>
             <p className="eyebrow"><span /> Steam release calendar</p>
-            <h1 id="page-title">Release desk</h1>
+            <h1 id="page-title">Steam Desk</h1>
             <p className="dek">A synthetic calendar for testing what launches next.</p>
           </div>
           <div className="header-meta">

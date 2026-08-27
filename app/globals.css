@@ -81,6 +81,16 @@ tbody tr:hover { background: #f8fbfc; }
 .bar-label { min-height: 32px; padding-top: 9px; overflow: hidden; color: #687580; font-size: 10px; line-height: 1.15; text-overflow: ellipsis; }
 .visualization-panel > footer { min-height: 58px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--rule); color: #89939b; font-size: 10px; }
 .visualization-panel > footer button { padding: 7px 9px; border: 0; color: var(--steam); background: transparent; cursor: pointer; font-size: 11px; }
+.plotly-panel { border-top: 3px solid var(--steam); }
+.plotly-panel > header { align-items: center; }
+.plot-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.plot-meta span { padding: 6px 9px; border: 1px solid #d8e2e7; border-radius: 999px; color: #60707a; background: #f7fafb; font: 550 9px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.plotly-stage { position: relative; min-height: 420px; padding: 12px 18px 2px; background: linear-gradient(90deg, rgba(22,119,168,.025) 1px, transparent 1px), linear-gradient(rgba(22,119,168,.025) 1px, transparent 1px), #fbfcfd; background-size: 28px 28px; }
+.plotly-canvas { width: 100%; min-height: 400px; }
+.plotly-status { position: absolute; inset: 18px; z-index: 2; display: grid; place-items: center; border: 1px dashed #cbd8df; border-radius: 12px; color: #75828c; background: rgba(251,252,253,.92); font: 550 11px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .04em; }
+.plotly-status.error { color: #9f4c46; border-color: #e4c5c2; background: #fff8f7; }
+.plotly-stage .modebar { right: 8px !important; top: 8px !important; }
+@media (max-width: 760px) { .plot-meta { justify-content: flex-start; } .plotly-stage { padding-inline: 4px; } }
 @keyframes grow-bar { from { transform: scaleY(0); opacity: .2; } to { transform: scaleY(1); opacity: 1; } }
 @media (max-width: 760px) { .site-shell { padding: 14px; place-items: start center; } .release-desk, .visualization-panel { border-radius: 14px; } .desk-header { min-height: 220px; padding: 28px 24px; align-items: flex-start; flex-direction: column; } .header-meta { width: 100%; align-items: center; justify-content: space-between; } .catalog-status { padding-left: 0; border-left: 0; } .toolbar { overflow-x: auto; } .search-field { min-width: 220px; } .visualization-panel > header { align-items: flex-start; flex-direction: column; } .chart { min-height: 290px; padding-inline: 14px; gap: 8px; } .bar-column { width: 10vw; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

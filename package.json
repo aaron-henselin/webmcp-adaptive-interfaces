@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "next": "16.2.6",
+    "plotly.js-dist-min": "^4.0.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

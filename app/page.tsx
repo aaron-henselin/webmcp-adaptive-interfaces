@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { GAMES, GENRES, Game, daysFromLaunch, formatDate, formatPrice } from './release-data';
+import { PlotlyCanvas, PlotlyFigure, PLOTLY_TRACE_TYPES, normalizePlotlyFigure } from './plotly-visualization';
 
 type SortKey = 'releaseDate' | 'title' | 'price' | 'wishlists';
 type SortDirection = 'asc' | 'desc';
@@ -116,7 +117,9 @@ export default function Home() {
   const [page, setPage] = useState(0);
   const [webMcpStatus, setWebMcpStatus] = useState<'checking' | 'connected' | 'preview'>('checking');
   const [visualization, setVisualization] = useState<Visualization | null>(null);
+  const [customVisualization, setCustomVisualization] = useState<PlotlyFigure | null>(null);
   const visualizationRef = useRef<HTMLElement>(null);
+  const customVisualizationRef = useRef<HTMLElement>(null);
 
   const filtered = useMemo(() => sortGames(filterGames(search, genre, dateWindow), sortKey, sortDirection), [search, genre, dateWindow, sortKey, sortDirection]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -137,6 +140,12 @@ export default function Home() {
       const next = makeVisualization(type, games);
       setVisualization(next);
       window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+      return next;
+    };
+    const showCustomFigure = (input: Record<string, unknown>) => {
+      const next = normalizePlotlyFigure(input);
+      setCustomVisualization(next);
+      window.setTimeout(() => customVisualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
       return next;
     };
 
@@ -188,8 +197,57 @@ export default function Home() {
         },
       },
       {
+        name: 'render_plotly_visualization',
+        description: 'Render a bespoke Plotly figure in Steam Desk. Call read_release_calendar first, compute any desired analysis, then send complete Plotly-compatible data traces and layout. This replaces the current browser visualization.',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string', maxLength: 100, description: 'Visible title for the visualization.' },
+            description: { type: 'string', maxLength: 220, description: 'Short explanation of the question the figure answers.' },
+            data: {
+              type: 'array', minItems: 1, maxItems: 12,
+              description: 'Plotly data traces. Up to 12 traces and 2,000 total points.',
+              items: {
+                type: 'object',
+                additionalProperties: true,
+                properties: {
+                  type: { type: 'string', enum: [...PLOTLY_TRACE_TYPES] },
+                  name: { type: 'string' },
+                  x: { type: 'array', maxItems: 2000, items: {} },
+                  y: { type: 'array', maxItems: 2000, items: {} },
+                  labels: { type: 'array', maxItems: 2000, items: {} },
+                  values: { type: 'array', maxItems: 2000, items: {} },
+                  mode: { type: 'string' },
+                  orientation: { type: 'string', enum: ['h', 'v'] },
+                  hole: { type: 'number', minimum: 0, maximum: 0.9 },
+                  marker: { type: 'object', additionalProperties: true },
+                  line: { type: 'object', additionalProperties: true },
+                  text: { type: 'array', maxItems: 2000, items: {} },
+                  hovertemplate: { type: 'string' },
+                },
+              },
+            },
+            layout: {
+              type: 'object',
+              additionalProperties: true,
+              description: 'Plotly layout options such as axes, legend, annotations, shapes, barmode, hovermode, and margins.',
+            },
+          },
+          required: ['title', 'data'],
+        },
+        annotations: { readOnlyHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          const figure = showCustomFigure(input);
+          return {
+            content: [{ type: 'text', text: `Rendered bespoke Plotly visualization “${figure.title}” with ${figure.traceCount} trace${figure.traceCount === 1 ? '' : 's'} and ${figure.pointCount.toLocaleString()} points.` }],
+            structuredContent: { displayed: true, renderer: 'plotly', title: figure.title, traceCount: figure.traceCount, pointCount: figure.pointCount },
+          };
+        },
+      },
+      {
         name: 'show_release_visualization',
-        description: 'Push a visualization of matching synthetic Steam releases into the browser page.',
+        description: 'Show one of three quick preset summaries. Prefer render_plotly_visualization when the user asks for a bespoke chart.',
         inputSchema: {
           type: 'object', additionalProperties: false,
           properties: {
@@ -279,6 +337,27 @@ export default function Home() {
         <footer className="desk-footer"><span>Showing {start.toLocaleString()}–{end.toLocaleString()} of {filtered.length.toLocaleString()}</span><div><button type="button" disabled={page === 0} onClick={() => setPage((value) => value - 1)} aria-label="Previous page">←</button><span>Page {page + 1} / {totalPages}</span><button type="button" disabled={page >= totalPages - 1} onClick={() => setPage((value) => value + 1)} aria-label="Next page">→</button></div></footer>
       </section>
 
+      {customVisualization && (
+        <section className="visualization-panel plotly-panel" ref={customVisualizationRef} aria-live="polite">
+          <header>
+            <div>
+              <p className="eyebrow"><span /> WebMCP · Bespoke figure</p>
+              <h2>{customVisualization.title}</h2>
+              <p>{customVisualization.description}</p>
+            </div>
+            <div className="plot-meta" aria-label="Visualization details">
+              <span>Plotly 4</span>
+              <span>{customVisualization.traceCount} {customVisualization.traceCount === 1 ? 'trace' : 'traces'}</span>
+              <span>{customVisualization.pointCount.toLocaleString()} points</span>
+            </div>
+          </header>
+          <PlotlyCanvas figure={customVisualization} />
+          <footer>
+            <span>Received as a complete Plotly specification through WebMCP</span>
+            <button type="button" onClick={() => setCustomVisualization(null)}>Close visualization</button>
+          </footer>
+        </section>
+      )}
       {visualization && (
         <section className="visualization-panel" ref={visualizationRef} aria-live="polite">
           <header><div><p className="eyebrow"><span /> Browser visualization</p><h2>{visualization.title}</h2><p>{visualization.subtitle}</p></div><div className="chart-tabs" aria-label="Visualization type"><button className={visualization.type === 'genre' ? 'active' : ''} onClick={() => renderChart('genre')}>Genre</button><button className={visualization.type === 'timeline' ? 'active' : ''} onClick={() => renderChart('timeline')}>Timeline</button><button className={visualization.type === 'price' ? 'active' : ''} onClick={() => renderChart('price')}>Price</button></div></header>

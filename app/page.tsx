@@ -9,8 +9,28 @@ type SortDirection = 'asc' | 'desc';
 type ChartType = 'genre' | 'timeline' | 'price';
 type ChartItem = { label: string; value: number };
 type Visualization = { type: ChartType; title: string; subtitle: string; items: ChartItem[] };
+type ReleaseField = 'id' | 'title' | 'releaseDate' | 'genre' | 'secondaryGenre' | 'price' | 'status' | 'studio' | 'wishlists';
+type ReleaseDataBinding = {
+  source: 'release_calendar';
+  query: string;
+  genre: string;
+  startDate: string;
+  endDate: string;
+  limit: number;
+  xField?: ReleaseField;
+  yField?: ReleaseField;
+  labelsField?: ReleaseField;
+  valuesField?: ReleaseField;
+  textField?: ReleaseField;
+  groupByField?: ReleaseField;
+  hoverFields: ReleaseField[];
+};
+type SavedReport = { id: string; savedAt: string; figure: PlotlyFigure; binding: ReleaseDataBinding | null };
 
 const PAGE_SIZE = 12;
+const MAX_SAVED_REPORTS = 8;
+const SAVED_REPORTS_KEY = 'steam-desk:saved-reports:v1';
+const RELEASE_FIELDS: ReleaseField[] = ['id', 'title', 'releaseDate', 'genre', 'secondaryGenre', 'price', 'status', 'studio', 'wishlists'];
 
 const coverMarks = ['◜', '◇', '◉', '⌁', '△', '✣', '⊙', '╱'];
 
@@ -93,6 +113,83 @@ function normalizeToolGames(input: Record<string, unknown>) {
   });
 }
 
+function releaseField(value: unknown): ReleaseField | undefined {
+  return typeof value === 'string' && RELEASE_FIELDS.includes(value as ReleaseField) ? value as ReleaseField : undefined;
+}
+
+function normalizeReleaseBinding(value: unknown): ReleaseDataBinding | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  if (input.source !== 'release_calendar') return null;
+  const hoverFields = Array.isArray(input.hoverFields)
+    ? input.hoverFields.map(releaseField).filter((field): field is ReleaseField => Boolean(field)).slice(0, 8)
+    : [];
+  const requestedLimit = typeof input.limit === 'number' ? Math.floor(input.limit) : 2000;
+  return {
+    source: 'release_calendar',
+    query: typeof input.query === 'string' ? input.query.slice(0, 120) : '',
+    genre: typeof input.genre === 'string' ? input.genre : 'All genres',
+    startDate: typeof input.startDate === 'string' ? input.startDate : '',
+    endDate: typeof input.endDate === 'string' ? input.endDate : '',
+    limit: Math.min(2000, Math.max(1, requestedLimit)),
+    xField: releaseField(input.xField),
+    yField: releaseField(input.yField),
+    labelsField: releaseField(input.labelsField),
+    valuesField: releaseField(input.valuesField),
+    textField: releaseField(input.textField),
+    groupByField: releaseField(input.groupByField),
+    hoverFields,
+  };
+}
+
+function regenerateSavedFigure(report: SavedReport) {
+  if (!report.binding) return normalizePlotlyFigure(report.figure as unknown as Record<string, unknown>);
+
+  const binding = report.binding;
+  const games = sortGames(normalizeToolGames(binding as unknown as Record<string, unknown>), 'releaseDate', 'asc').slice(0, binding.limit);
+  const grouped = new Map<string, Game[]>();
+  for (const game of games) {
+    const key = binding.groupByField ? String(game[binding.groupByField] ?? 'Unspecified') : '';
+    const existing = grouped.get(key);
+    if (existing) existing.push(game);
+    else grouped.set(key, [game]);
+  }
+
+  const groups = Array.from(grouped.entries()).slice(0, 12);
+  const data = groups.map(([name, rows], index) => {
+    const namedTemplate = report.figure.data.find((trace) => typeof trace.name === 'string' && trace.name === name);
+    const template = namedTemplate ?? report.figure.data[index % report.figure.data.length] ?? { type: 'scatter' };
+    const trace: Record<string, unknown> = { ...template };
+    delete trace.x;
+    delete trace.y;
+    delete trace.labels;
+    delete trace.values;
+    delete trace.text;
+    delete trace.customdata;
+    if (binding.groupByField) trace.name = name;
+    if (binding.xField) trace.x = rows.map((game) => game[binding.xField!]);
+    if (binding.yField) trace.y = rows.map((game) => game[binding.yField!]);
+    if (binding.labelsField) trace.labels = rows.map((game) => game[binding.labelsField!]);
+    if (binding.valuesField) trace.values = rows.map((game) => game[binding.valuesField!]);
+    if (binding.textField) trace.text = rows.map((game) => String(game[binding.textField!] ?? ''));
+    if (binding.hoverFields.length) trace.customdata = rows.map((game) => binding.hoverFields.map((field) => game[field]));
+    return trace;
+  });
+
+  return normalizePlotlyFigure({
+    title: report.figure.title,
+    description: report.figure.description,
+    data: data.length ? data : report.figure.data,
+    layout: report.figure.layout,
+  });
+}
+
+function savedAtLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Saved locally';
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+}
+
 function BarChart({ visualization }: { visualization: Visualization }) {
   const max = Math.max(...visualization.items.map((item) => item.value), 1);
   return (
@@ -118,6 +215,9 @@ export default function Home() {
   const [webMcpStatus, setWebMcpStatus] = useState<'checking' | 'connected' | 'preview'>('checking');
   const [visualization, setVisualization] = useState<Visualization | null>(null);
   const [customVisualization, setCustomVisualization] = useState<PlotlyFigure | null>(null);
+  const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
+  const [savedReportsReady, setSavedReportsReady] = useState(false);
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const visualizationRef = useRef<HTMLElement>(null);
   const customVisualizationRef = useRef<HTMLElement>(null);
 
@@ -127,6 +227,42 @@ export default function Home() {
 
   useEffect(() => { setPage(0); }, [search, genre, dateWindow]);
   useEffect(() => { if (page >= totalPages) setPage(totalPages - 1); }, [page, totalPages]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SAVED_REPORTS_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return;
+      const restored = parsed.flatMap((item): SavedReport[] => {
+        try {
+          if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !item.figure) return [];
+          return [{
+            id: item.id,
+            savedAt: typeof item.savedAt === 'string' ? item.savedAt : new Date().toISOString(),
+            figure: normalizePlotlyFigure(item.figure as Record<string, unknown>),
+            binding: normalizeReleaseBinding(item.binding),
+          }];
+        } catch {
+          return [];
+        }
+      }).slice(0, MAX_SAVED_REPORTS);
+      setSavedReports(restored);
+    } catch {
+      // Ignore malformed or unavailable browser storage and start with an empty shelf.
+    } finally {
+      setSavedReportsReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!savedReportsReady) return;
+    try {
+      window.localStorage.setItem(SAVED_REPORTS_KEY, JSON.stringify(savedReports));
+    } catch {
+      // A report remains usable for this session if the browser refuses persistence.
+    }
+  }, [savedReports, savedReportsReady]);
 
   useEffect(() => {
     const context = document.modelContext ?? navigator.modelContext;
@@ -144,9 +280,17 @@ export default function Home() {
     };
     const showCustomFigure = (input: Record<string, unknown>) => {
       const next = normalizePlotlyFigure(input);
+      const report: SavedReport = {
+        id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'report-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+        savedAt: new Date().toISOString(),
+        figure: next,
+        binding: normalizeReleaseBinding(input.binding),
+      };
+      setSavedReports((current) => [report, ...current].slice(0, MAX_SAVED_REPORTS));
+      setActiveReportId(report.id);
       setCustomVisualization(next);
       window.setTimeout(() => customVisualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
-      return next;
+      return report;
     };
 
     const tools = [
@@ -198,7 +342,7 @@ export default function Home() {
       },
       {
         name: 'render_plotly_visualization',
-        description: 'Render a bespoke Plotly figure in Steam Desk. Call read_release_calendar first, compute any desired analysis, then send complete Plotly-compatible data traces and layout. This replaces the current browser visualization.',
+        description: 'Render and save a bespoke Plotly figure in Steam Desk. Include a release_calendar binding so reopening the saved report regenerates its traces from the current source rows. Call read_release_calendar first, then send complete Plotly-compatible data traces, layout, and field mapping.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -233,15 +377,37 @@ export default function Home() {
               additionalProperties: true,
               description: 'Plotly layout options such as axes, legend, annotations, shapes, barmode, hovermode, and margins.',
             },
+            binding: {
+              type: 'object',
+              additionalProperties: false,
+              description: 'Live binding used to regenerate the saved report from Steam Desk release rows.',
+              properties: {
+                source: { type: 'string', const: 'release_calendar' },
+                query: { type: 'string', maxLength: 120 },
+                genre: { type: 'string', enum: ['All genres', ...GENRES] },
+                startDate: { type: 'string', description: 'Inclusive ISO date, YYYY-MM-DD.' },
+                endDate: { type: 'string', description: 'Inclusive ISO date, YYYY-MM-DD.' },
+                limit: { type: 'integer', minimum: 1, maximum: 2000, default: 2000 },
+                xField: { type: 'string', enum: RELEASE_FIELDS },
+                yField: { type: 'string', enum: RELEASE_FIELDS },
+                labelsField: { type: 'string', enum: RELEASE_FIELDS },
+                valuesField: { type: 'string', enum: RELEASE_FIELDS },
+                textField: { type: 'string', enum: RELEASE_FIELDS },
+                groupByField: { type: 'string', enum: RELEASE_FIELDS },
+                hoverFields: { type: 'array', maxItems: 8, items: { type: 'string', enum: RELEASE_FIELDS } },
+              },
+              required: ['source'],
+            },
           },
-          required: ['title', 'data'],
+          required: ['title', 'data', 'binding'],
         },
         annotations: { readOnlyHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
-          const figure = showCustomFigure(input);
+          const report = showCustomFigure(input);
+          const figure = report.figure;
           return {
             content: [{ type: 'text', text: `Rendered bespoke Plotly visualization “${figure.title}” with ${figure.traceCount} trace${figure.traceCount === 1 ? '' : 's'} and ${figure.pointCount.toLocaleString()} points.` }],
-            structuredContent: { displayed: true, renderer: 'plotly', title: figure.title, traceCount: figure.traceCount, pointCount: figure.pointCount },
+            structuredContent: { displayed: true, saved: true, reportId: report.id, renderer: 'plotly', binding: report.binding, title: figure.title, traceCount: figure.traceCount, pointCount: figure.pointCount },
           };
         },
       },
@@ -281,6 +447,19 @@ export default function Home() {
     window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
   }
 
+  function openSavedReport(report: SavedReport) {
+    const regenerated = regenerateSavedFigure(report);
+    setCustomVisualization(regenerated);
+    setActiveReportId(report.id);
+    window.setTimeout(() => customVisualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+  }
+
+  function deleteSavedReport(id: string) {
+    setSavedReports((current) => current.filter((report) => report.id !== id));
+    if (activeReportId === id) setActiveReportId(null);
+  }
+
+  const activeSavedReport = savedReports.find((report) => report.id === activeReportId) ?? null;
   const start = filtered.length === 0 ? 0 : page * PAGE_SIZE + 1;
   const end = Math.min((page + 1) * PAGE_SIZE, filtered.length);
 
@@ -337,6 +516,39 @@ export default function Home() {
         <footer className="desk-footer"><span>Showing {start.toLocaleString()}–{end.toLocaleString()} of {filtered.length.toLocaleString()}</span><div><button type="button" disabled={page === 0} onClick={() => setPage((value) => value - 1)} aria-label="Previous page">←</button><span>Page {page + 1} / {totalPages}</span><button type="button" disabled={page >= totalPages - 1} onClick={() => setPage((value) => value + 1)} aria-label="Next page">→</button></div></footer>
       </section>
 
+      <section className="saved-reports" aria-labelledby="saved-reports-title">
+        <header className="saved-reports-header">
+          <div>
+            <p className="eyebrow"><span /> Local workspace</p>
+            <h2 id="saved-reports-title">Saved reports</h2>
+          </div>
+          <span className="saved-reports-count">{savedReports.length} / {MAX_SAVED_REPORTS}</span>
+        </header>
+        {savedReports.length === 0 ? (
+          <div className="saved-reports-empty">
+            <span aria-hidden="true">⌁</span>
+            <div><strong>No saved reports yet</strong><small>WebMCP Plotly visualizations will appear here with their data bindings.</small></div>
+          </div>
+        ) : (
+          <div className="saved-reports-list">
+            {savedReports.map((report) => (
+              <article className={'saved-report-card' + (activeReportId === report.id ? ' active' : '')} key={report.id}>
+                <button type="button" className="saved-report-open" onClick={() => openSavedReport(report)}>
+                  <span className="saved-report-mark">{String(report.figure.data[0]?.type ?? 'plot').slice(0, 4)}</span>
+                  <span className="saved-report-copy">
+                    <strong>{report.figure.title}</strong>
+                    <small>{savedAtLabel(report.savedAt)} · {report.figure.pointCount.toLocaleString()} points</small>
+                    <em>{report.binding ? 'Live · release_calendar' : 'Snapshot · Plotly spec'}</em>
+                  </span>
+                </button>
+                <button type="button" className="saved-report-delete" aria-label={'Delete ' + report.figure.title} onClick={() => deleteSavedReport(report.id)}>×</button>
+              </article>
+            ))}
+          </div>
+        )}
+        <footer className="saved-reports-note"><span>Stored only in this browser</span><span>Open a report to rebuild its traces from the saved binding</span></footer>
+      </section>
+
       {customVisualization && (
         <section className="visualization-panel plotly-panel" ref={customVisualizationRef} aria-live="polite">
           <header>
@@ -347,14 +559,15 @@ export default function Home() {
             </div>
             <div className="plot-meta" aria-label="Visualization details">
               <span>Plotly 4</span>
+              {activeSavedReport?.binding && <span>Live data binding</span>}
               <span>{customVisualization.traceCount} {customVisualization.traceCount === 1 ? 'trace' : 'traces'}</span>
               <span>{customVisualization.pointCount.toLocaleString()} points</span>
             </div>
           </header>
           <PlotlyCanvas figure={customVisualization} />
           <footer>
-            <span>Received as a complete Plotly specification through WebMCP</span>
-            <button type="button" onClick={() => setCustomVisualization(null)}>Close visualization</button>
+            <span>{activeSavedReport?.binding ? 'Regenerated from the saved release_calendar binding' : 'Saved as a complete Plotly specification through WebMCP'}</span>
+            <button type="button" onClick={() => { setCustomVisualization(null); setActiveReportId(null); }}>Close visualization</button>
           </footer>
         </section>
       )}

@@ -64,6 +64,29 @@ tbody tr:hover { background: #f8fbfc; }
 .result-strip button { padding: 5px; border: 0; color: var(--steam); background: transparent; cursor: pointer; font-size: 11px; }
 .empty-state { min-height: 240px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 7px; color: var(--muted); }
 .empty-state strong { color: var(--ink); font-size: 15px; }.empty-state span { font-size: 12px; }
+.saved-reports { width: min(1180px, 100%); margin-top: 18px; overflow: hidden; border: 1px solid #d5dde3; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 14px 40px rgba(35,55,68,.055); backdrop-filter: blur(16px); }
+.saved-reports-header { min-height: 86px; padding: 20px 24px 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--rule); }
+.saved-reports-header .eyebrow { margin-bottom: 8px; }
+.saved-reports h2 { margin: 0; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; font-size: 24px; font-weight: 620; letter-spacing: -.04em; }
+.saved-reports-count { padding: 7px 9px; border: 1px solid var(--rule); border-radius: 999px; color: #6e7a84; background: white; font: 550 9px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .05em; }
+.saved-reports-list { padding: 14px; display: grid; grid-auto-columns: minmax(260px, 1fr); grid-auto-flow: column; gap: 10px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.saved-report-card { position: relative; min-width: 0; display: flex; border: 1px solid #dfe6ea; border-radius: 12px; background: #fbfcfd; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.saved-report-card:hover { border-color: #b9d2de; box-shadow: 0 8px 22px rgba(35,55,68,.07); transform: translateY(-1px); }
+.saved-report-card.active { border-color: #83b9d2; box-shadow: inset 3px 0 0 var(--steam), 0 8px 22px rgba(35,55,68,.07); background: #f7fbfd; }
+.saved-report-open { min-width: 0; flex: 1; padding: 14px 38px 14px 14px; display: flex; align-items: flex-start; gap: 12px; border: 0; border-radius: inherit; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.saved-report-mark { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; color: var(--steam); background: var(--steam-soft); font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase; }
+.saved-report-copy { min-width: 0; display: grid; gap: 5px; }
+.saved-report-copy strong { overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 630; text-overflow: ellipsis; white-space: nowrap; }
+.saved-report-copy small { color: #7e8992; font: 500 9px/1.25 "Cascadia Mono", ui-monospace, monospace; }
+.saved-report-copy em { color: #4583a0; font-size: 10px; font-style: normal; }
+.saved-report-delete { position: absolute; right: 8px; top: 8px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; color: #9aa3aa; background: transparent; cursor: pointer; font-size: 18px; line-height: 1; }
+.saved-report-delete:hover { color: #a34842; background: #fbeceb; }
+.saved-reports-empty { min-height: 96px; padding: 20px 24px; display: flex; align-items: center; gap: 14px; color: #8c979f; }
+.saved-reports-empty > span { width: 38px; height: 38px; display: grid; place-items: center; border: 1px dashed #c8d5dc; border-radius: 9px; color: var(--steam); font-size: 19px; }
+.saved-reports-empty strong, .saved-reports-empty small { display: block; }
+.saved-reports-empty strong { color: #4b5862; font-size: 12px; }
+.saved-reports-empty small { margin-top: 5px; color: #89949c; font-size: 10px; }
+.saved-reports-note { min-height: 38px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid #e7ecef; color: #949da4; font-size: 9px; }
 .visualization-panel { width: min(1180px, 100%); margin-top: 18px; overflow: hidden; border: 1px solid #d5dde3; border-radius: 20px; background: var(--surface); box-shadow: 0 24px 70px rgba(35,55,68,.08); }
 .visualization-panel > header { padding: 28px 32px 22px; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; border-bottom: 1px solid var(--rule); }
 .visualization-panel h2 { margin: 0; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; font-size: 30px; font-weight: 620; letter-spacing: -.04em; }
@@ -92,5 +115,5 @@ tbody tr:hover { background: #f8fbfc; }
 .plotly-stage .modebar { right: 8px !important; top: 8px !important; }
 @media (max-width: 760px) { .plot-meta { justify-content: flex-start; } .plotly-stage { padding-inline: 4px; } }
 @keyframes grow-bar { from { transform: scaleY(0); opacity: .2; } to { transform: scaleY(1); opacity: 1; } }
-@media (max-width: 760px) { .site-shell { padding: 14px; place-items: start center; } .release-desk, .visualization-panel { border-radius: 14px; } .desk-header { min-height: 220px; padding: 28px 24px; align-items: flex-start; flex-direction: column; } .header-meta { width: 100%; align-items: center; justify-content: space-between; } .catalog-status { padding-left: 0; border-left: 0; } .toolbar { overflow-x: auto; } .search-field { min-width: 220px; } .visualization-panel > header { align-items: flex-start; flex-direction: column; } .chart { min-height: 290px; padding-inline: 14px; gap: 8px; } .bar-column { width: 10vw; } }
+@media (max-width: 760px) { .site-shell { padding: 14px; place-items: start center; } .release-desk, .saved-reports, .visualization-panel { border-radius: 14px; } .desk-header { min-height: 220px; padding: 28px 24px; align-items: flex-start; flex-direction: column; } .header-meta { width: 100%; align-items: center; justify-content: space-between; } .catalog-status { padding-left: 0; border-left: 0; } .toolbar { overflow-x: auto; } .search-field { min-width: 220px; } .saved-reports-header { padding-inline: 18px; } .saved-reports-list { grid-auto-columns: minmax(245px, 82vw); } .saved-reports-note { padding: 9px 18px; align-items: flex-start; flex-direction: column; gap: 3px; } .visualization-panel > header { align-items: flex-start; flex-direction: column; } .chart { min-height: 290px; padding-inline: 14px; gap: 8px; } .bar-column { width: 10vw; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Release Desk — Steam release calendar',
   description: 'Explore thousands of upcoming game releases and visualize the calendar with WebMCP.',
-  metadataBase: new URL(process.env.SITE_ORIGIN ?? 'http://localhost:3000'),
+  metadataBase: new URL(process.env.SITE_ORIGIN ?? 'https://release-desk-calendar.ahenselin.chatgpt.site'),
   openGraph: {
     title: 'Release Desk — Steam release calendar',
     description: 'Explore thousands of upcoming game releases and visualize the calendar with WebMCP.',

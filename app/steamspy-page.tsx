@@ -8,10 +8,9 @@ import {
   normalizeAnalyticsBinding,
   renderAnalyticsReport,
   runAnalyticsBinding,
-  steamSpyAnalyticsRow,
+  STEAMSPY_FIELD_CATALOG,
 } from "./steamspy-analytics";
 import {
-  activityBand,
   formatCompact,
   formatOwnerRange,
   formatPercent,
@@ -136,6 +135,13 @@ const SAMPLE_PROMPTS = [
   { mode: "Chart", prompt: "Chart the number of games in each review sentiment band and save it as a report." },
   { mode: "Mixed", prompt: "Show the median review score for free games, with a chart of their review sentiment." },
 ] as const;
+const REPORT_MODE_CATALOG = [
+  { mode: "metric", useWhen: "The result is one headline value.", requires: ["metric"] },
+  { mode: "table", useWhen: "The result is a small set of comparable rows.", requires: ["table"] },
+  { mode: "chart", useWhen: "A pattern, distribution, or relationship is easier to understand visually.", requires: ["visualization"] },
+  { mode: "narrative", useWhen: "The result is best expressed as a concise written finding.", requires: ["narrative"] },
+  { mode: "mixed", useWhen: "A headline value benefits from a supporting chart.", requires: ["metric", "visualization"] },
+] as const;
 
 const coverMarks = ["◜", "◇", "◉", "⌁", "△", "✣", "⊙", "╱"];
 const ownerBandLabels = new Map(
@@ -182,32 +188,6 @@ function makeVisualization(type: ChartType, games: SteamSpyGame[]): Visualizatio
     subtitle: `SteamSpy owner ranges for ${games.length.toLocaleString()} matching games`,
     items: OWNER_BANDS.map((band) => ({ label: ownerBandLabels.get(band) ?? band, value: games.filter((game) => game.owners === band).length })).filter((item) => item.value > 0),
   };
-}
-
-function makeSummary(groupBy: string, games: SteamSpyGame[]) {
-  const values = groupBy === "priceBand" ? PRICE_BANDS
-    : groupBy === "reviewBand" ? REVIEW_BANDS
-      : groupBy === "activityBand" ? ["100K+ playing", "10K–99K playing", "1K–9.9K playing", "100–999 playing", "Under 100 playing", "No players reported"]
-        : OWNER_BANDS;
-  return values.map((value) => ({
-    label: groupBy === "ownerBand" ? ownerBandLabels.get(value) ?? value : value,
-    value: games.filter((game) => {
-      if (groupBy === "priceBand") return priceBand(game) === value;
-      if (groupBy === "reviewBand") return reviewBand(game) === value;
-      if (groupBy === "activityBand") return activityBand(game) === value;
-      return game.owners === value;
-    }).length,
-  })).filter((item) => item.value > 0);
-}
-
-function normalizeToolGames(input: Record<string, unknown>) {
-  return filterSteamSpyGames({
-    query: typeof input.query === "string" ? input.query : "",
-    ownerBand: typeof input.ownerBand === "string" ? input.ownerBand : "All owner ranges",
-    priceBand: typeof input.priceBand === "string" ? input.priceBand : "All prices",
-    minPositiveRatio: typeof input.minPositiveRatio === "number" ? input.minPositiveRatio : 0,
-    minCcu: typeof input.minCcu === "number" ? input.minCcu : 0,
-  });
 }
 
 function savedAtLabel(value: string) {
@@ -501,52 +481,39 @@ export default function SteamSpyPage() {
       return { report, rows, figure, openInBrowser };
     };
 
-    const sourceFilterProperties = {
-      query: { type: "string", description: "Game title, developer, or publisher text to match." },
-      ownerBand: { type: "string", enum: [...OWNER_BANDS], description: "Exact SteamSpy estimated-owner range." },
-      priceBand: { type: "string", enum: [...PRICE_BANDS] },
-      minPositiveRatio: { type: "number", minimum: 0, maximum: 1, description: "Minimum positive-review ratio, from 0 to 1." },
-      minCcu: { type: "integer", minimum: 0, description: "Minimum reported concurrent players." },
-    };
     const tools = [
       {
-        name: "read_steamspy_snapshot",
-        description: "Read games from Steam Desk’s local three-page SteamSpy snapshot. Filter by title/developer/publisher, owner range, price, review ratio, or concurrent players.",
-        inputSchema: { type: "object", additionalProperties: false, properties: { ...sourceFilterProperties, limit: { type: "integer", minimum: 1, maximum: 100, default: 25 } } },
+        name: "describe_steamspy_snapshot",
+        description: "Describe the SteamSpy datasource and report contract without reading records or calculating summaries. Use this when you need field meanings, units, filters, analytics operations, or presentation modes before creating a report.",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
-        execute: async (input: Record<string, unknown>) => {
-          const matches = sortGames(normalizeToolGames(input), "ownersMax", "desc");
-          const limit = Math.min(100, Math.max(1, typeof input.limit === "number" ? Math.floor(input.limit) : 25));
-          const rows = matches.slice(0, limit).map(steamSpyAnalyticsRow);
-          return {
-            content: [{ type: "text", text: `Found ${matches.length.toLocaleString()} games in the static SteamSpy snapshot; returning ${rows.length}.` }],
-            structuredContent: {
-              source: STEAMSPY_SNAPSHOT.source,
-              snapshotDate: STEAMSPY_SNAPSHOT.snapshotDate,
-              sourcePages: STEAMSPY_SNAPSHOT.pageCount,
-              total: matches.length,
-              returned: rows.length,
-              games: rows,
+        execute: () => ({
+          content: [{ type: "text", text: `Described the SteamSpy report contract: ${STEAMSPY_FIELD_CATALOG.length} fields, five presentation modes, and no game records.` }],
+          structuredContent: {
+            schemaVersion: "steam-desk.datasource/v1",
+            source: {
+              name: "steamspy_snapshot",
+              label: "SteamSpy static snapshot",
+              description: "A locally cached datasource available only through the create_report analytics pipeline.",
             },
-          };
-        },
-      },
-      {
-        name: "summarize_steamspy_snapshot",
-        description: "Summarize the local SteamSpy snapshot by owner range, price band, review sentiment, or current activity.",
-        inputSchema: { type: "object", additionalProperties: false, properties: { groupBy: { type: "string", enum: ["ownerBand", "priceBand", "reviewBand", "activityBand"], default: "ownerBand" }, ...sourceFilterProperties } },
-        annotations: { readOnlyHint: true, untrustedContentHint: false },
-        execute: async (input: Record<string, unknown>) => {
-          const groupBy = ["priceBand", "reviewBand", "activityBand"].includes(String(input.groupBy)) ? String(input.groupBy) : "ownerBand";
-          const games = normalizeToolGames(input);
-          const items = makeSummary(groupBy, games);
-          const title = `SteamSpy snapshot by ${groupBy.replace("Band", " band")}`;
-          return { content: [{ type: "text", text: `${title}: ${items.map((item) => `${item.label} ${item.value}`).join(", ")}.` }], structuredContent: { title, groupBy, total: games.length, items } };
-        },
+            fields: STEAMSPY_FIELD_CATALOG,
+            reportDefinition: {
+              data: REPORT_DATA_SCHEMA,
+              presentation: REPORT_PRESENTATION_SCHEMA,
+              valueFormats: REPORT_VALUE_FORMATS,
+            },
+            presentationModes: REPORT_MODE_CATALOG,
+            guidance: [
+              "Use aggregate operations for scalar answers such as medians, means, counts, minima, and maxima.",
+              "Use currencyCents for price fields, percent for positiveRatio, and minutes for playtime fields.",
+              "The describe tool returns schema and capabilities only; create_report executes the data definition.",
+            ],
+          },
+        }),
       },
       {
         name: "create_report",
-        description: "Create and save a Steam Desk report from the static SteamSpy snapshot. Choose metric for a direct answer, table for rows, chart for visual patterns, narrative for a written finding, or mixed for a metric with a supporting chart. Reopening any report reruns its data definition.",
+        description: "Create, execute, and save a Steam Desk report from the static SteamSpy snapshot. Choose metric for a direct answer, table for rows, chart for visual patterns, narrative for a written finding, or mixed for a metric with a supporting chart. Call describe_steamspy_snapshot first when field meanings or supported operations are unclear. Reopening any report reruns its data definition.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -666,7 +633,7 @@ export default function SteamSpyPage() {
           <div>
             <p className="eyebrow"><span /> SteamSpy static snapshot</p>
             <h1 id="page-title">Steam Desk</h1>
-            <p className="dek">A searchable market snapshot built from three locally cached SteamSpy pages.</p>
+            <p className="dek">A searchable market snapshot built from eleven locally cached SteamSpy pages.</p>
           </div>
           <div className="header-meta">
             <div className={`agent-state state-${webMcpStatus}`}><span />{webMcpStatus === "connected" ? "WebMCP connected" : webMcpStatus === "preview" ? "WebMCP preview" : "Checking WebMCP"}</div>
@@ -715,7 +682,7 @@ export default function SteamSpyPage() {
           <button type="button" className="view-button" onClick={() => renderChart("owners")}>Quick view <span>↗</span></button>
         </div>
 
-        <div className="result-strip"><span><strong>{filtered.length.toLocaleString()}</strong> games match · 3 cached pages</span><button type="button" onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setSelectedPriceBand("All prices"); }}>Reset filters</button></div>
+        <div className="result-strip"><span><strong>{filtered.length.toLocaleString()}</strong> games match · 11 cached pages</span><button type="button" onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setSelectedPriceBand("All prices"); }}>Reset filters</button></div>
 
         <div className="table-wrap">
           <table>

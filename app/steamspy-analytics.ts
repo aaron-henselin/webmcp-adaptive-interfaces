@@ -10,31 +10,33 @@ import {
   type SteamSpyGame,
 } from "./steamspy-data";
 
-export const BINDING_FIELDS = [
-  "id",
-  "title",
-  "developer",
-  "publisher",
-  "owners",
-  "ownersMin",
-  "ownersMax",
-  "priceCents",
-  "initialPriceCents",
-  "discountPercent",
-  "positive",
-  "negative",
-  "reviewCount",
-  "positiveRatio",
-  "ccu",
-  "averageForever",
-  "average2Weeks",
-  "medianForever",
-  "median2Weeks",
-  "ownerBand",
-  "priceBand",
-  "reviewBand",
-  "activityBand",
+export const STEAMSPY_FIELD_CATALOG = [
+  { name: "id", type: "integer", description: "Steam application ID." },
+  { name: "title", type: "string", description: "Game title." },
+  { name: "developer", type: "string", description: "Developer name." },
+  { name: "publisher", type: "string", description: "Publisher name." },
+  { name: "owners", type: "string", description: "SteamSpy estimated-owner range as published." },
+  { name: "ownersMin", type: "integer", description: "Lower bound of the estimated-owner range.", unit: "owners" },
+  { name: "ownersMax", type: "integer", description: "Upper bound of the estimated-owner range.", unit: "owners" },
+  { name: "priceCents", type: "integer", description: "Current listed price in US cents.", unit: "USD cents" },
+  { name: "initialPriceCents", type: "integer", description: "Original listed price in US cents.", unit: "USD cents" },
+  { name: "discountPercent", type: "number", description: "Current discount percentage.", unit: "percent" },
+  { name: "positive", type: "integer", description: "Positive review count.", unit: "reviews" },
+  { name: "negative", type: "integer", description: "Negative review count.", unit: "reviews" },
+  { name: "reviewCount", type: "integer", description: "Total positive and negative reviews.", unit: "reviews" },
+  { name: "positiveRatio", type: ["number", "null"], description: "Share of reviews that are positive, from 0 to 1.", unit: "ratio" },
+  { name: "ccu", type: "integer", description: "Concurrent players reported by SteamSpy.", unit: "players" },
+  { name: "averageForever", type: "number", description: "Average all-time playtime.", unit: "minutes" },
+  { name: "average2Weeks", type: "number", description: "Average playtime over the last two weeks.", unit: "minutes" },
+  { name: "medianForever", type: "number", description: "Median all-time playtime.", unit: "minutes" },
+  { name: "median2Weeks", type: "number", description: "Median playtime over the last two weeks.", unit: "minutes" },
+  { name: "ownerBand", type: "string", description: "Derived owner-range category; equivalent to owners." },
+  { name: "priceBand", type: "string", description: "Derived current-price category." },
+  { name: "reviewBand", type: "string", description: "Derived positive-review sentiment category." },
+  { name: "activityBand", type: "string", description: "Derived concurrent-player activity category." },
 ] as const;
+
+export const BINDING_FIELDS = STEAMSPY_FIELD_CATALOG.map((field) => field.name);
 
 type SourceFilters = {
   query: string;

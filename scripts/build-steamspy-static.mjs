@@ -4,7 +4,8 @@ import path from "node:path";
 import process from "node:process";
 
 const SNAPSHOT = process.env.STEAMSPY_SNAPSHOT ?? "2026-08-27";
-const PAGE_COUNT = Number.parseInt(process.env.STEAMSPY_PAGES ?? "3", 10);
+const PAGE_COUNT = Number.parseInt(process.env.STEAMSPY_PAGES ?? "11", 10);
+const TARGET_RECORD_COUNT = 10_000;
 const INPUT_DIR = path.resolve("data", "steamspy", "raw", SNAPSHOT, "all");
 const OUTPUT_FILE = path.resolve("app", "steamspy-snapshot.json");
 
@@ -77,8 +78,10 @@ for (let page = 0; page < PAGE_COUNT; page += 1) {
 
 const uniqueRecords = [...new Map(records.map((game) => [game.id, game])).values()];
 
-if (uniqueRecords.length !== records.length) {
-  throw new Error(`Found ${records.length - uniqueRecords.length} duplicate app ids.`);
+const snapshotRecords = uniqueRecords.slice(0, TARGET_RECORD_COUNT);
+
+if (snapshotRecords.length < TARGET_RECORD_COUNT) {
+  throw new Error(`Only found ${snapshotRecords.length} unique games; ${TARGET_RECORD_COUNT} are required.`);
 }
 
 const snapshot = {
@@ -87,14 +90,14 @@ const snapshot = {
   request: "all",
   snapshotDate: SNAPSHOT,
   pageCount: PAGE_COUNT,
-  recordCount: uniqueRecords.length,
+  recordCount: snapshotRecords.length,
   sourceFiles,
-  games: uniqueRecords,
+  games: snapshotRecords,
 };
 
 await mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
 await writeFile(OUTPUT_FILE, `${JSON.stringify(snapshot)}\n`, "utf8");
 
 console.log(
-  `Built ${path.relative(process.cwd(), OUTPUT_FILE)} from ${PAGE_COUNT} pages (${uniqueRecords.length} games).`,
+  `Built ${path.relative(process.cwd(), OUTPUT_FILE)} from ${PAGE_COUNT} pages (${snapshotRecords.length} games).`,
 );

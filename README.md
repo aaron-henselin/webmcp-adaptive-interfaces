@@ -49,4 +49,4 @@ The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`.
 
 - Local environment files, D1 state, generated imports, dependencies, and raw source data are ignored.
 - `.openai/hosting.json` declares the Sites-managed D1 binding.
-- The versioned page document is stored in browser local storage. Reports rerun against D1 inline. Demo 2 returns an explicit composition guide through WebMCP and supports safe date, time-of-day greeting, local first-name, page, and catalog bindings for personalized HTML widgets.
+- The versioned page document is stored in browser local storage. Reports rerun against D1 inline. Demo 2 returns an explicit composition guide through WebMCP. Before creating a page it requires WebMCP to collect and locally store the user-confirmed first name and job role through setAudience; widgets then resolve safe greeting, name, role, date, page, and catalog bindings from that context.

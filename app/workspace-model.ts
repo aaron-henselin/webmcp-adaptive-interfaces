@@ -28,10 +28,12 @@ export type LeafBlock = ReportBlock | HtmlBlock;
 export type TabDefinition = { id: string; label: string; blocks: LeafBlock[] };
 export type TabsBlock = { id: string; type: "tabs"; span: BlockSpan; title: string; tabs: TabDefinition[] };
 export type WorkspaceBlock = LeafBlock | TabsBlock;
-export type Workspace = { schemaVersion: 1; updatedAt: string; selectedBlockId: string | null; blocks: WorkspaceBlock[] };
+export type AudienceContext = { firstName: string; jobRole: string };
+export type Workspace = { schemaVersion: 1; updatedAt: string; selectedBlockId: string | null; audience: AudienceContext; blocks: WorkspaceBlock[] };
 
 export type WorkspaceOperation =
   | { op: "inspect" }
+  | { op: "setAudience"; firstName: string; jobRole: string }
   | { op: "select"; target: string }
   | { op: "addHtml"; title?: string; markup: string; span?: BlockSpan; after?: string }
   | { op: "addTabs"; title?: string; labels: string[]; span?: BlockSpan; after?: string }
@@ -52,7 +54,7 @@ export const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "cu
 
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const BINDING_PATTERN = /{{\s*([A-Za-z][A-Za-z0-9_.]*)\s*}}/g;
-export const HTML_BINDINGS = ["time.greeting", "user.firstName", "today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"] as const;
+export const HTML_BINDINGS = ["time.greeting", "user.firstName", "user.jobRole", "today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"] as const;
 const ALLOWED_BINDINGS = new Set<string>(HTML_BINDINGS);
 const ALLOWED_TAGS = new Set(["P", "DIV", "SPAN", "H2", "H3", "H4", "STRONG", "EM", "SMALL", "TIME", "UL", "OL", "LI", "A", "BR", "HR"]);
 
@@ -135,7 +137,7 @@ function totalBlocks(blocks: WorkspaceBlock[]) {
 }
 
 export function emptyWorkspace(): Workspace {
-  return { schemaVersion: 1, updatedAt: new Date().toISOString(), selectedBlockId: null, blocks: [] };
+  return { schemaVersion: 1, updatedAt: new Date().toISOString(), selectedBlockId: null, audience: { firstName: "", jobRole: "" }, blocks: [] };
 }
 
 export function normalizeWorkspace(value: unknown): Workspace | null {
@@ -147,7 +149,8 @@ export function normalizeWorkspace(value: unknown): Workspace | null {
   });
   if (totalBlocks(blocks) > MAX_WORKSPACE_BLOCKS) return null;
   const selected = typeof value.selectedBlockId === "string" ? value.selectedBlockId : null;
-  return { schemaVersion: 1, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), selectedBlockId: selected, blocks };
+  const audience = isRecord(value.audience) ? { firstName: cleanText(value.audience.firstName, "", 60), jobRole: cleanText(value.audience.jobRole, "", 100) } : { firstName: "", jobRole: "" };
+  return { schemaVersion: 1, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), selectedBlockId: selected, audience, blocks };
 }
 
 export function loadWorkspace(): Workspace {
@@ -214,6 +217,7 @@ export function applyOperations(current: Workspace, operations: WorkspaceOperati
   const changes: string[] = [];
   for (const operation of operations.slice(0, 16)) {
     if (operation.op === "inspect") continue;
+    if (operation.op === "setAudience") { workspace.audience = { firstName: cleanText(operation.firstName, "", 60), jobRole: cleanText(operation.jobRole, "", 100) }; changes.push("Set the page audience to " + workspace.audience.firstName + ", " + workspace.audience.jobRole + "."); continue; }
     if (operation.op === "reset") { workspace.blocks = []; workspace.selectedBlockId = null; changes.push("Reset the page."); continue; }
     if (operation.op === "undo") continue;
     if (operation.op === "addHtml") {
@@ -291,11 +295,11 @@ function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
-export function renderHtmlWidget(markup: string, values: { pageTitle: string; recordCount: number; userFirstName: string }) {
+export function renderHtmlWidget(markup: string, values: { pageTitle: string; recordCount: number; userFirstName: string; userJobRole: string }) {
   const now = new Date();
   const greeting = now.getHours() < 12 ? "Good morning" : now.getHours() < 18 ? "Good afternoon" : "Good evening";
   const bindings: Record<string, string> = {
-    "time.greeting": greeting, "user.firstName": values.userFirstName,
+    "time.greeting": greeting, "user.firstName": values.userFirstName, "user.jobRole": values.userJobRole,
     "today.long": now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
     "today.short": now.toLocaleDateString(), currentYear: String(now.getFullYear()),
     "page.title": values.pageTitle, "catalog.recordCount": values.recordCount.toLocaleString(),

@@ -1,7 +1,13 @@
 export const PAGE_COMPOSITION_GUIDE = {
-  purpose: "Compose a useful, personalized page from the user's goal. Infer the layout unless the user explicitly asks for a particular arrangement.",
+  purpose: "Compose a useful, personalized page from the user's goal and known job role. Never infer identity or role from catalog activity. Infer layout unless the user explicitly asks for a particular arrangement.",
+  audienceDiscovery: {
+    requiredBeforeCreation: true,
+    requiredFields: ["firstName", "jobRole"],
+    workflow: ["Inspect workspace.audience first.", "If first name or job role is missing, stop and ask the user for both before creating reports or page blocks.", "Call compose_page with setAudience before addHtml, addTabs, or create_report.", "Do not guess a role from the data, browsing behavior, or prior report requests."],
+    roleApplication: ["Prioritize the decisions and metrics that matter to that role.", "Use vocabulary appropriate to the role without stereotyping.", "Choose a CTA that advances the role's likely next task.", "Explain why the first-view content is relevant to the role."],
+  },
   decisionOrder: [
-    "Identify the user's job-to-be-done and the single most important action or answer.",
+    "Confirm the user's first name and job role, then identify their job-to-be-done and single most important action or answer.",
     "Choose the smallest number of blocks that creates a clear reading order.",
     "Select each block's width from its information density and priority; do not ask the user to choose widths.",
     "For briefings, home pages, and overviews, add a restrained personalized welcome and one clear call to action.",
@@ -30,14 +36,15 @@ export const PAGE_COMPOSITION_GUIDE = {
   personalization: {
     useWhen: ["the user asks for a home page, briefing, overview, or recurring workspace", "a greeting helps establish whose page this is and when it was prepared"],
     guidance: ["Use personalization once near the top, not in every block.", "Pair the greeting with useful context, not decoration.", "Include one action-oriented link when there is a logical next step."],
-    bindings: ["time.greeting", "user.firstName", "today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"],
-    exampleMarkup: "<h2>{{time.greeting}}, {{user.firstName}}</h2><p>Your Steam catalog briefing for {{today.long}} is ready.</p><a href=\"#catalog-browser\">Explore the catalog</a>",
+    bindings: ["time.greeting", "user.firstName", "user.jobRole", "today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"],
+    exampleMarkup: "<h2>{{time.greeting}}, {{user.firstName}}</h2><p>Your {{today.long}} catalog briefing is tailored to your work as {{user.jobRole}}.</p><a href=\"#catalog-browser\">Explore the catalog</a>",
   },
   tabs: {
     chooseWhen: ["views are alternatives rather than simultaneous comparisons", "secondary detail would otherwise make the page long"],
     avoidWhen: ["users need to compare the content side by side", "the content is essential to the first scan"],
   },
   qualityChecks: [
+    "The stored first name and job role were confirmed by the user before page creation.",
     "The page has one obvious starting point and one primary next action.",
     "Width reflects content density, not arbitrary symmetry.",
     "Personalization is useful and restrained.",

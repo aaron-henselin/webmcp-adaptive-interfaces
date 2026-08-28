@@ -18,7 +18,17 @@
 
 # misc
 .DS_Store
+Thumbs.db
 *.pem
+*.key
+*.p12
+*.pfx
+*.tsbuildinfo
+.eslintcache
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 
 # debug
 npm-debug.log*
@@ -28,9 +38,11 @@ yarn-error.log*
 
 # local environment
 .env*
+!.env.example
 
 # deployment and generated files
 .vercel
+/.openai/*.tgz
 next-env.d.ts
 /dist/
 /.wrangler/

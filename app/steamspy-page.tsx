@@ -17,16 +17,16 @@ import {
   formatPlaytime,
   formatPrice,
   formatSnapshotDate,
-  GAMES,
+  loadSteamSpySnapshot,
   OWNER_BANDS,
   priceBand,
   PRICE_BANDS,
   reviewBand,
   REVIEW_BANDS,
-  STEAMSPY_SNAPSHOT,
   type SteamSpyGame,
+  type SteamSpySnapshot,
 } from "./steamspy-data";
-import { PlotlyCanvas, type PlotlyFigure, PLOTLY_TRACE_TYPES, normalizePlotlyFigure } from "./plotly-visualization";
+import { PlotlyCanvas, type PlotlyFigure, PLOTLY_TRACE_TYPES, normalizePlotlyFigure, renderPlotlyFigureToPng } from "./plotly-visualization";
 
 type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
 type SortDirection = "asc" | "desc";
@@ -45,11 +45,34 @@ type ReportPresentation =
   | { mode: "mixed"; metric: MetricSpec; figure: PlotlyFigure };
 type SavedReport = { id: string; savedAt: string; title: string; description: string; presentation: ReportPresentation; binding: AnalyticsBinding };
 type OpenReport = { report: SavedReport; rows: Record<string, unknown>[]; figure?: PlotlyFigure };
+type ReportToolStage = "validation" | "execution" | "lookup" | "render";
+type ReportToolErrorCode =
+  | "INVALID_PRESENTATION"
+  | "INVALID_DATA_DEFINITION"
+  | "INVALID_RESULT_FIELD"
+  | "INVALID_REPORT_ID"
+  | "REPORT_NOT_FOUND"
+  | "UNSUPPORTED_RENDER_MODE"
+  | "REPORT_EXECUTION_FAILED"
+  | "REPORT_RENDER_FAILED";
+
+class ReportToolError extends Error {
+  constructor(
+    readonly code: ReportToolErrorCode,
+    message: string,
+    readonly retryable: boolean,
+    readonly stage: ReportToolStage,
+  ) {
+    super(message);
+    this.name = "ReportToolError";
+  }
+}
 
 const PAGE_SIZE = 12;
 const MAX_SAVED_REPORTS = 8;
 const MAX_CHAT_REPORT_ROWS = 20;
 const MAX_CHAT_REPORT_COLUMNS = 8;
+const EMPTY_GAMES: SteamSpyGame[] = [];
 const SAVED_REPORTS_KEY = "steam-desk:saved-reports:v4";
 const LEGACY_SAVED_REPORTS_KEY = "steam-desk:saved-reports:v3";
 const PLOTLY_TRACE_SCHEMA = {
@@ -147,8 +170,8 @@ const REPORT_MODE_CATALOG = [
 const coverMarks = ["◜", "◇", "◉", "⌁", "△", "✣", "⊙", "╱"];
 const ownerBandLabels = new Map(
   OWNER_BANDS.map((band) => {
-    const game = GAMES.find((item) => item.owners === band);
-    return [band, game ? formatOwnerRange(game) : band] as const;
+    const [ownersMin, ownersMax] = band.split("..").map((value) => Number(value.replaceAll(",", "").trim()));
+    return [band, formatOwnerRange({ ownersMin, ownersMax })] as const;
   }),
 );
 
@@ -162,8 +185,8 @@ function sortGames(games: SteamSpyGame[], key: SortKey, direction: SortDirection
   });
 }
 
-function filterGames(search: string, ownerBand: string, selectedPriceBand: string) {
-  return filterSteamSpyGames({ query: search, ownerBand, priceBand: selectedPriceBand });
+function filterGames(games: SteamSpyGame[], search: string, ownerBand: string, selectedPriceBand: string) {
+  return filterSteamSpyGames(games, { query: search, ownerBand, priceBand: selectedPriceBand });
 }
 
 function makeVisualization(type: ChartType, games: SteamSpyGame[]): Visualization {
@@ -207,6 +230,56 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function reportText(value: unknown, fallback: string, limit: number) {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : fallback;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error && error.message ? error.message : "The report could not be executed.";
+}
+
+function invalidPresentation(message: string): never {
+  throw new ReportToolError("INVALID_PRESENTATION", message, false, "validation");
+}
+
+function reportToolFailure(error: unknown) {
+  const failure = error instanceof ReportToolError
+    ? error
+    : new ReportToolError("REPORT_EXECUTION_FAILED", errorMessage(error), true, "execution");
+  return {
+    content: [{ type: "text", text: `Report creation failed (${failure.code}): ${failure.message}${failure.retryable ? " Retrying may succeed." : " Correct the report definition before retrying."}` }],
+    structuredContent: {
+      schemaVersion: "steam-desk.report-receipt/v2",
+      ok: false,
+      created: false,
+      saved: false,
+      browser: { opened: false },
+      error: {
+        code: failure.code,
+        message: failure.message,
+        retryable: failure.retryable,
+        stage: failure.stage,
+      },
+    },
+  };
+}
+
+function renderToolFailure(error: unknown) {
+  const failure = error instanceof ReportToolError
+    ? error
+    : new ReportToolError("REPORT_RENDER_FAILED", errorMessage(error), true, "render");
+  return {
+    content: [{ type: "text", text: `Report rendering failed (${failure.code}): ${failure.message}${failure.retryable ? " Retrying may succeed." : " Change the request before retrying."}` }],
+    structuredContent: {
+      schemaVersion: "steam-desk.report-render/v2",
+      ok: false,
+      rendered: false,
+      error: {
+        code: failure.code,
+        message: failure.message,
+        retryable: failure.retryable,
+        stage: failure.stage,
+      },
+    },
+  };
 }
 
 function valueFormat(value: unknown): ValueFormat {
@@ -274,27 +347,27 @@ function createPresentation(input: Record<string, unknown>, title: string, descr
 
   if (mode === "metric") {
     const metric = normalizeMetricSpec(supplied?.metric);
-    if (!metric) throw new Error("A metric report requires a valid metric definition.");
+    if (!metric) invalidPresentation("A metric report requires a valid metric definition.");
     return { presentation: { mode, metric } as ReportPresentation, encoding: { hover: [] } };
   }
   if (mode === "table") {
     const columns = normalizeTableColumns(supplied?.table);
-    if (!columns.length) throw new Error("A table report requires at least one column.");
+    if (!columns.length) invalidPresentation("A table report requires at least one column.");
     return { presentation: { mode, table: { columns } } as ReportPresentation, encoding: { hover: [] } };
   }
   if (mode === "narrative" && supplied && isRecord(supplied.narrative)) {
     const body = reportText(supplied.narrative.body, "", 800);
-    if (!body) throw new Error("A narrative report requires a written finding.");
+    if (!body) invalidPresentation("A narrative report requires a written finding.");
     return { presentation: { mode, narrative: { body } } as ReportPresentation, encoding: { hover: [] } };
   }
   if ((mode === "chart" || mode === "mixed") && visualization) {
     const figure = normalizePlotlyFigure({ title, description, data: visualization.traces, layout: visualization.layout });
     if (mode === "chart") return { presentation: { mode, figure } as ReportPresentation, encoding: visualization.encoding };
     const metric = normalizeMetricSpec(supplied?.metric);
-    if (!metric) throw new Error("A mixed report requires a headline metric.");
+    if (!metric) invalidPresentation("A mixed report requires a headline metric.");
     return { presentation: { mode, metric, figure } as ReportPresentation, encoding: visualization.encoding };
   }
-  throw new Error("Choose a valid report presentation mode and provide its required definition.");
+  return invalidPresentation("Choose a valid report presentation mode and provide its required definition.");
 }
 
 function formatReportValue(value: unknown, format: ValueFormat) {
@@ -345,12 +418,12 @@ function markdownTable(columns: TableColumn[], rows: Record<string, unknown>[]) 
   return [header, divider, ...body, ...(remainder > 0 ? [`_${remainder.toLocaleString()} additional rows are available in Steam Desk._`] : [])].join("\n");
 }
 
-async function runSavedReport(report: SavedReport): Promise<OpenReport> {
+async function runSavedReport(report: SavedReport, games: SteamSpyGame[]): Promise<OpenReport> {
   if (report.presentation.mode === "chart" || report.presentation.mode === "mixed") {
-    const rendered = await renderAnalyticsReport(report.presentation.figure, report.binding);
+    const rendered = await renderAnalyticsReport(report.presentation.figure, report.binding, games);
     return { report, rows: rendered.rows, figure: normalizePlotlyFigure(rendered.figure) };
   }
-  return { report, rows: await runAnalyticsBinding(report.binding) };
+  return { report, rows: await runAnalyticsBinding(report.binding, games) };
 }
 
 function renderReportForChat(opened: OpenReport) {
@@ -430,6 +503,8 @@ function ReportBody({ opened }: { opened: OpenReport }) {
 }
 
 export default function SteamSpyPage() {
+  const [snapshot, setSnapshot] = useState<SteamSpySnapshot | null>(null);
+  const [snapshotError, setSnapshotError] = useState("");
   const [search, setSearch] = useState("");
   const [ownerBand, setOwnerBand] = useState("All owner ranges");
   const [selectedPriceBand, setSelectedPriceBand] = useState("All prices");
@@ -446,14 +521,32 @@ export default function SteamSpyPage() {
   const visualizationRef = useRef<HTMLElement>(null);
   const reportRef = useRef<HTMLElement>(null);
   const copiedPromptTimerRef = useRef<number | null>(null);
+  const games = snapshot?.games ?? EMPTY_GAMES;
 
   const filtered = useMemo(
-    () => sortGames(filterGames(search, ownerBand, selectedPriceBand), sortKey, sortDirection),
-    [search, ownerBand, selectedPriceBand, sortKey, sortDirection],
+    () => sortGames(filterGames(games, search, ownerBand, selectedPriceBand), sortKey, sortDirection),
+    [games, search, ownerBand, selectedPriceBand, sortKey, sortDirection],
   );
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visiblePage = Math.min(page, totalPages - 1);
   const visible = filtered.slice(visiblePage * PAGE_SIZE, visiblePage * PAGE_SIZE + PAGE_SIZE);
+
+  useEffect(() => {
+    let active = true;
+    loadSteamSpySnapshot()
+      .then((loaded) => {
+        if (active) setSnapshot(loaded);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setSnapshotError(errorMessage(error));
+          setWebMcpStatus("preview");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -498,6 +591,7 @@ export default function SteamSpyPage() {
   }, []);
 
   useEffect(() => {
+    if (!snapshot) return;
     const context = document.modelContext ?? navigator.modelContext;
     if (!context) {
       const timer = window.setTimeout(() => setWebMcpStatus("preview"), 0);
@@ -511,29 +605,33 @@ export default function SteamSpyPage() {
       const reportData = isRecord(input.data) ? input.data : {};
       const created = createPresentation(input, title, description);
       const binding = normalizeAnalyticsBinding({ ...reportData, encoding: created.encoding });
-      if (!binding) throw new Error("A report requires a valid data definition.");
+      if (!binding) throw new ReportToolError("INVALID_DATA_DEFINITION", "A report requires a valid data definition.", false, "validation");
 
       let rows: Record<string, unknown>[];
       let presentation = created.presentation;
       let figure: PlotlyFigure | undefined;
-      if (presentation.mode === "chart" || presentation.mode === "mixed") {
-        const rendered = await renderAnalyticsReport(presentation.figure, binding);
-        rows = rendered.rows;
-        figure = normalizePlotlyFigure(rendered.figure);
-        presentation = presentation.mode === "chart"
-          ? { mode: "chart", figure }
-          : { mode: "mixed", metric: presentation.metric, figure };
-      } else {
-        rows = await runAnalyticsBinding(binding);
+      try {
+        if (presentation.mode === "chart" || presentation.mode === "mixed") {
+          const rendered = await renderAnalyticsReport(presentation.figure, binding, games);
+          rows = rendered.rows;
+          figure = normalizePlotlyFigure(rendered.figure);
+          presentation = presentation.mode === "chart"
+            ? { mode: "chart", figure }
+            : { mode: "mixed", metric: presentation.metric, figure };
+        } else {
+          rows = await runAnalyticsBinding(binding, games);
+        }
+      } catch (error) {
+        throw new ReportToolError("INVALID_DATA_DEFINITION", errorMessage(error), false, "execution");
       }
 
       const availableFields = new Set(rows.flatMap((row) => Object.keys(row)));
       if ((presentation.mode === "metric" || presentation.mode === "mixed") && rows.length && !availableFields.has(presentation.metric.valueField)) {
-        throw new Error(`The metric field “${presentation.metric.valueField}” is not present in the report result.`);
+        throw new ReportToolError("INVALID_RESULT_FIELD", `The metric field “${presentation.metric.valueField}” is not present in the report result.`, false, "validation");
       }
       if (presentation.mode === "table" && rows.length) {
         const missing = presentation.table.columns.find((column) => !availableFields.has(column.field));
-        if (missing) throw new Error(`The table field “${missing.field}” is not present in the report result.`);
+        if (missing) throw new ReportToolError("INVALID_RESULT_FIELD", `The table field “${missing.field}” is not present in the report result.`, false, "validation");
       }
 
       const openInBrowser = input.openInBrowser !== false;
@@ -558,7 +656,7 @@ export default function SteamSpyPage() {
     const tools = [
       {
         name: "describe_steamspy_snapshot",
-        description: "Describe the SteamSpy datasource and report contract without reading records or calculating summaries. Use this when you need field meanings, units, filters, analytics operations, or presentation modes before creating a report.",
+        description: "Use only when field meanings, units, supported calculations, filters, or presentation bindings are unclear. Returns schemaVersion, source, fields, reportDefinition, presentationModes, and guidance; it does not read records, calculate summaries, or create reports.",
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
         execute: () => ({
@@ -580,14 +678,15 @@ export default function SteamSpyPage() {
             guidance: [
               "Use aggregate operations for scalar answers such as medians, means, counts, minima, and maxima.",
               "Use currencyCents for price fields, percent for positiveRatio, and minutes for playtime fields.",
-              "The describe tool returns schema and capabilities only; create_report executes the data definition.",
+              "The describe tool returns schema and capabilities only; create_report executes the data definition and returns a receipt.",
+              "Use render_report only when the saved result should be presented as bounded Markdown or a static PNG.",
             ],
           },
         }),
       },
       {
         name: "create_report",
-        description: "Create, execute, and save a Steam Desk report from the static SteamSpy snapshot. Choose metric for a direct answer, table for rows, chart for visual patterns, narrative for a written finding, or mixed for a metric with a supporting chart. Call describe_steamspy_snapshot first when field meanings or supported operations are unclear. This tool returns a creation receipt, not report data. Call render_report with the returned reportId when the report should be presented in chat.",
+        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Executes and saves the complete report, optionally opens it in Steam Desk, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, Quick View, or Saved Reports through the page UI.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -596,58 +695,107 @@ export default function SteamSpyPage() {
             description: { type: "string", maxLength: 220 },
             data: REPORT_DATA_SCHEMA,
             presentation: REPORT_PRESENTATION_SCHEMA,
-            openInBrowser: { type: "boolean", default: true },
+            openInBrowser: { type: "boolean", default: true, description: "Whether to open and scroll to the completed report in Steam Desk. The report is saved either way." },
           },
           required: ["title", "data", "presentation"],
         },
         annotations: { readOnlyHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
-          const completed = await createReport(input);
-          const report = completed.report;
-          return {
-            content: [{ type: "text", text: `Created and saved ${reportModeLabel(report.presentation.mode).toLocaleLowerCase()} report “${report.title}” with ID ${report.id}. The Steam Desk panel was ${completed.openInBrowser ? "opened" : "left closed"}. Use render_report with this report ID to present it in chat.` }],
-            structuredContent: {
-              schemaVersion: "steam-desk.report-receipt/v1",
-              created: true,
-              saved: true,
-              reportId: report.id,
-              title: report.title,
-              mode: report.presentation.mode,
-              browser: { saved: true, opened: completed.openInBrowser },
-            },
-          };
+          try {
+            const completed = await createReport(input);
+            const report = completed.report;
+            return {
+              content: [{ type: "text", text: `Created and saved ${reportModeLabel(report.presentation.mode).toLocaleLowerCase()} report “${report.title}” with ID ${report.id}. The Steam Desk panel was ${completed.openInBrowser ? "opened" : "left closed"}.` }],
+              structuredContent: {
+                schemaVersion: "steam-desk.report-receipt/v2",
+                ok: true,
+                created: true,
+                saved: true,
+                browser: { opened: completed.openInBrowser },
+                report: {
+                  id: report.id,
+                  title: report.title,
+                  mode: report.presentation.mode,
+                  rowCount: completed.rows.length,
+                },
+              },
+            };
+          } catch (error) {
+            return reportToolFailure(error);
+          }
         },
       },
       {
         name: "render_report",
-        description: "Render a saved Steam Desk report as chat-ready Markdown. Use the reportId returned by create_report. This read-only tool reloads the saved definition and reruns its analytics without changing the report or opening the browser panel.",
+        description: "Use when the user asks to show, render, or embed an existing saved report. renderMode auto returns a PNG for chart or mixed reports and bounded Markdown otherwise; markdown returns at most 20 rows and 8 columns, while image is available only for chart or mixed reports. Returns chat-ready content plus receipt metadata and never returns raw result rows or the presentation payload. INVALID_REPORT_ID, REPORT_NOT_FOUND, and UNSUPPORTED_RENDER_MODE are not retryable; execution or rendering failures are retryable.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
           properties: {
             reportId: { type: "string", minLength: 1, maxLength: 128, description: "The saved report ID returned by create_report." },
+            renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto", description: "Use auto to select a PNG for chart or mixed reports and bounded Markdown for other report modes." },
           },
           required: ["reportId"],
         },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
-          const reportId = typeof input.reportId === "string" ? input.reportId.trim() : "";
-          if (!reportId) throw new Error("A report ID is required.");
-          const report = savedReportsRef.current.find((item) => item.id === reportId);
-          if (!report) throw new Error(`No saved report was found with ID “${reportId}”.`);
-          const opened = await runSavedReport(report);
-          return {
-            content: [{ type: "text", text: renderReportForChat(opened) }],
-            structuredContent: {
-              schemaVersion: "steam-desk.report-render/v1",
-              rendered: true,
-              reportId: report.id,
-              title: report.title,
-              mode: report.presentation.mode,
-              rowCount: opened.rows.length,
-              truncated: opened.rows.length > MAX_CHAT_REPORT_ROWS,
-            },
-          };
+          try {
+            const reportId = typeof input.reportId === "string" ? input.reportId.trim() : "";
+            if (!reportId) throw new ReportToolError("INVALID_REPORT_ID", "A report ID is required.", false, "validation");
+            const report = savedReportsRef.current.find((item) => item.id === reportId);
+            if (!report) throw new ReportToolError("REPORT_NOT_FOUND", `No saved report was found with ID “${reportId}”.`, false, "lookup");
+
+            if (input.renderMode !== undefined && !["auto", "markdown", "image"].includes(String(input.renderMode))) {
+              throw new ReportToolError("UNSUPPORTED_RENDER_MODE", "renderMode must be auto, markdown, or image.", false, "validation");
+            }
+            const requestedMode = input.renderMode === "markdown" || input.renderMode === "image" ? input.renderMode : "auto";
+            let opened: OpenReport;
+            try {
+              opened = await runSavedReport(report, games);
+            } catch (error) {
+              throw new ReportToolError("REPORT_EXECUTION_FAILED", errorMessage(error), true, "execution");
+            }
+            const resolvedMode = requestedMode === "auto"
+              ? report.presentation.mode === "chart" || report.presentation.mode === "mixed" ? "image" : "markdown"
+              : requestedMode;
+
+            let content: Array<Record<string, unknown>>;
+            let mimeType: "text/markdown" | "image/png";
+            if (resolvedMode === "image") {
+              if (!opened.figure) {
+                throw new ReportToolError("UNSUPPORTED_RENDER_MODE", "Image rendering is available only for chart or mixed reports. Use markdown for this report.", false, "render");
+              }
+              let png: string;
+              try {
+                png = await renderPlotlyFigureToPng(opened.figure);
+              } catch (error) {
+                throw new ReportToolError("REPORT_RENDER_FAILED", errorMessage(error), true, "render");
+              }
+              mimeType = "image/png";
+              content = [
+                { type: "text", text: `Rendered “${report.title}” as a PNG. Report ID: ${report.id}.` },
+                { type: "image", data: png, mimeType },
+              ];
+            } else {
+              mimeType = "text/markdown";
+              content = [{ type: "text", text: renderReportForChat(opened) }];
+            }
+
+            return {
+              content,
+              structuredContent: {
+                schemaVersion: "steam-desk.report-render/v2",
+                ok: true,
+                rendered: true,
+                report: { id: report.id, title: report.title, mode: report.presentation.mode },
+                render: { requestedMode, resolvedMode, mimeType },
+                rowCount: opened.rows.length,
+                truncated: resolvedMode === "markdown" && opened.rows.length > MAX_CHAT_REPORT_ROWS,
+              },
+            };
+          } catch (error) {
+            return renderToolFailure(error);
+          }
         },
       },
     ];
@@ -656,7 +804,7 @@ export default function SteamSpyPage() {
       .then(() => setWebMcpStatus("connected"))
       .catch(() => setWebMcpStatus("preview"));
     return () => controller.abort();
-  }, []);
+  }, [games, snapshot]);
 
   function changeSort(next: SortKey) {
     if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc");
@@ -672,7 +820,7 @@ export default function SteamSpyPage() {
   }
 
   async function openSavedReport(report: SavedReport) {
-    setOpenReport(await runSavedReport(report));
+    setOpenReport(await runSavedReport(report, games));
     window.setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
   }
 
@@ -705,11 +853,14 @@ export default function SteamSpyPage() {
           <div>
             <p className="eyebrow"><span /> SteamSpy static snapshot</p>
             <h1 id="page-title">Steam Desk</h1>
-            <p className="dek">A searchable market snapshot built from eleven locally cached SteamSpy pages.</p>
+            <p className="dek">A searchable market snapshot built from 21 locally cached SteamSpy pages.</p>
           </div>
           <div className="header-meta">
             <div className={`agent-state state-${webMcpStatus}`}><span />{webMcpStatus === "connected" ? "WebMCP connected" : webMcpStatus === "preview" ? "WebMCP preview" : "Checking WebMCP"}</div>
-            <div className="catalog-status"><strong>{GAMES.length.toLocaleString()}</strong><span>games · {formatSnapshotDate(STEAMSPY_SNAPSHOT.snapshotDate)}</span></div>
+            <div className="catalog-status">
+              <strong>{snapshot ? games.length.toLocaleString() : "—"}</strong>
+              <span>{snapshot ? `games · ${formatSnapshotDate(snapshot.snapshotDate)}` : snapshotError ? "snapshot unavailable" : "loading snapshot"}</span>
+            </div>
           </div>
         </header>
 
@@ -748,13 +899,13 @@ export default function SteamSpyPage() {
         </section>
 
         <div className="toolbar" aria-label="SteamSpy filters">
-          <label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, publishers" /></label>
-          <label className="select-field"><span className="sr-only">Owner range</span><select value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label>
-          <label className="select-field"><span className="sr-only">Price band</span><select value={selectedPriceBand} onChange={(event) => { setSelectedPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <button type="button" className="view-button" onClick={() => renderChart("owners")}>Quick view <span>↗</span></button>
+          <label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!snapshot} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, publishers" /></label>
+          <label className="select-field"><span className="sr-only">Owner range</span><select disabled={!snapshot} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label>
+          <label className="select-field"><span className="sr-only">Price band</span><select disabled={!snapshot} value={selectedPriceBand} onChange={(event) => { setSelectedPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <button type="button" className="view-button" disabled={!snapshot} onClick={() => renderChart("owners")}>Quick view <span>↗</span></button>
         </div>
 
-        <div className="result-strip"><span><strong>{filtered.length.toLocaleString()}</strong> games match · 11 cached pages</span><button type="button" onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setSelectedPriceBand("All prices"); }}>Reset filters</button></div>
+        <div className="result-strip"><span>{snapshot ? <><strong>{filtered.length.toLocaleString()}</strong> games match · {snapshot.pageCount.toLocaleString()} cached pages</> : snapshotError || "Loading cached snapshot…"}</span><button type="button" disabled={!snapshot} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setSelectedPriceBand("All prices"); }}>Reset filters</button></div>
 
         <div className="table-wrap">
           <table>
@@ -780,7 +931,7 @@ export default function SteamSpyPage() {
                   </tr>
                 );
               })}
-              {visible.length === 0 && <tr><td colSpan={6}><div className="empty-state"><strong>No games found</strong><span>Try a broader search or reset the filters.</span></div></td></tr>}
+              {visible.length === 0 && <tr><td colSpan={6}><div className="empty-state"><strong>{snapshot ? "No games found" : snapshotError ? "Snapshot unavailable" : "Loading games"}</strong><span>{snapshot ? "Try a broader search or reset the filters." : snapshotError || "Fetching the cached SteamSpy dataset…"}</span></div></td></tr>}
             </tbody>
           </table>
         </div>

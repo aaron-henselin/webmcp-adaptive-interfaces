@@ -4,10 +4,10 @@ import path from "node:path";
 import process from "node:process";
 
 const SNAPSHOT = process.env.STEAMSPY_SNAPSHOT ?? "2026-08-27";
-const PAGE_COUNT = Number.parseInt(process.env.STEAMSPY_PAGES ?? "11", 10);
-const TARGET_RECORD_COUNT = 10_000;
+const PAGE_COUNT = Number.parseInt(process.env.STEAMSPY_PAGES ?? "21", 10);
+const TARGET_RECORD_COUNT = 20_000;
 const INPUT_DIR = path.resolve("data", "steamspy", "raw", SNAPSHOT, "all");
-const OUTPUT_FILE = path.resolve("app", "steamspy-snapshot.json");
+const OUTPUT_FILE = path.resolve("public", "data", "steamspy-snapshot.json");
 
 if (!Number.isInteger(PAGE_COUNT) || PAGE_COUNT < 1) {
   throw new Error("STEAMSPY_PAGES must be a positive integer.");

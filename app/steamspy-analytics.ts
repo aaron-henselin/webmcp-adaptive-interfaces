@@ -1,7 +1,6 @@
 import type { PlotlyFigure, PlotlyTrace } from "./plotly-visualization";
 import {
   activityBand,
-  GAMES,
   OWNER_BANDS,
   priceBand,
   PRICE_BANDS,
@@ -271,13 +270,13 @@ export function normalizeAnalyticsBinding(value: unknown): AnalyticsBinding | nu
   };
 }
 
-export function filterSteamSpyGames(filters: Partial<SourceFilters>) {
+export function filterSteamSpyGames(games: SteamSpyGame[], filters: Partial<SourceFilters>) {
   const query = typeof filters.query === "string" ? filters.query.trim().toLocaleLowerCase() : "";
   const owner = typeof filters.ownerBand === "string" ? filters.ownerBand : "All owner ranges";
   const price = typeof filters.priceBand === "string" ? filters.priceBand : "All prices";
   const minPositiveRatio = typeof filters.minPositiveRatio === "number" ? filters.minPositiveRatio : 0;
   const minCcu = typeof filters.minCcu === "number" ? filters.minCcu : 0;
-  return GAMES.filter((game) => {
+  return games.filter((game) => {
     const haystack = `${game.title} ${game.developer} ${game.publisher}`.toLocaleLowerCase();
     return (!query || haystack.includes(query))
       && (owner === "All owner ranges" || game.owners === owner)
@@ -347,9 +346,9 @@ async function loadArquero() {
   return arqueroPromise;
 }
 
-export async function runAnalyticsBinding(binding: AnalyticsBinding) {
+export async function runAnalyticsBinding(binding: AnalyticsBinding, games: SteamSpyGame[]) {
   const aq = await loadArquero();
-  let table = aq.from(filterSteamSpyGames(binding.source.filters).map(steamSpyAnalyticsRow));
+  let table = aq.from(filterSteamSpyGames(games, binding.source.filters).map(steamSpyAnalyticsRow));
   let pendingGroups: string[] = [];
   for (const operation of binding.pipeline) {
     if (operation.operation === "groupBy") {
@@ -432,13 +431,13 @@ function bindRowsToAnalyticsFigure(figure: PlotlyFigure, binding: AnalyticsBindi
   return { title: figure.title, description: figure.description, data, layout: figure.layout };
 }
 
-export async function renderAnalyticsReport(figure: PlotlyFigure, binding: AnalyticsBinding) {
-  const rows = await runAnalyticsBinding(binding);
+export async function renderAnalyticsReport(figure: PlotlyFigure, binding: AnalyticsBinding, games: SteamSpyGame[]) {
+  const rows = await runAnalyticsBinding(binding, games);
   return { rows, figure: bindRowsToAnalyticsFigure(figure, binding, rows) };
 }
 
-export async function regenerateAnalyticsFigure(figure: PlotlyFigure, binding: AnalyticsBinding) {
-  return (await renderAnalyticsReport(figure, binding)).figure;
+export async function regenerateAnalyticsFigure(figure: PlotlyFigure, binding: AnalyticsBinding, games: SteamSpyGame[]) {
+  return (await renderAnalyticsReport(figure, binding, games)).figure;
 }
 
 export const ANALYTICS_GROUP_VALUES = {

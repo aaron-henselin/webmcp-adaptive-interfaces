@@ -1,5 +1,3 @@
-import snapshotJson from "./steamspy-snapshot.json";
-
 export type SteamSpyGame = {
   id: number;
   title: string;
@@ -22,7 +20,7 @@ export type SteamSpyGame = {
   median2Weeks: number;
 };
 
-type SteamSpySnapshot = {
+export type SteamSpySnapshot = {
   source: string;
   sourceUrl: string;
   request: string;
@@ -38,8 +36,26 @@ type SteamSpySnapshot = {
   games: SteamSpyGame[];
 };
 
-export const STEAMSPY_SNAPSHOT = snapshotJson as SteamSpySnapshot;
-export const GAMES = STEAMSPY_SNAPSHOT.games;
+export const STEAMSPY_SNAPSHOT_URL = "/data/steamspy-snapshot.json";
+
+let snapshotPromise: Promise<SteamSpySnapshot> | null = null;
+
+export function loadSteamSpySnapshot() {
+  snapshotPromise ??= fetch(STEAMSPY_SNAPSHOT_URL, { cache: "force-cache" })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`SteamSpy snapshot request failed with status ${response.status}.`);
+      const value: unknown = await response.json();
+      if (!value || typeof value !== "object" || !Array.isArray((value as { games?: unknown }).games)) {
+        throw new Error("SteamSpy snapshot response is invalid.");
+      }
+      return value as SteamSpySnapshot;
+    })
+    .catch((error) => {
+      snapshotPromise = null;
+      throw error;
+    });
+  return snapshotPromise;
+}
 
 export const PRICE_BANDS = [
   "Free",
@@ -84,13 +100,20 @@ export function activityBand(game: SteamSpyGame) {
   return "No players reported";
 }
 
-export const OWNER_BANDS = Array.from(new Set(GAMES.map((game) => game.owners))).sort(
-  (left, right) => {
-    const leftGame = GAMES.find((game) => game.owners === left);
-    const rightGame = GAMES.find((game) => game.owners === right);
-    return (rightGame?.ownersMax ?? 0) - (leftGame?.ownersMax ?? 0);
-  },
-);
+export const OWNER_BANDS = [
+  "100,000,000 .. 200,000,000",
+  "50,000,000 .. 100,000,000",
+  "20,000,000 .. 50,000,000",
+  "10,000,000 .. 20,000,000",
+  "5,000,000 .. 10,000,000",
+  "2,000,000 .. 5,000,000",
+  "1,000,000 .. 2,000,000",
+  "500,000 .. 1,000,000",
+  "200,000 .. 500,000",
+  "100,000 .. 200,000",
+  "50,000 .. 100,000",
+  "20,000 .. 50,000",
+] as const;
 
 const compactNumber = new Intl.NumberFormat("en-US", {
   notation: "compact",

@@ -95,6 +95,30 @@ export function normalizePlotlyFigure(input: Record<string, unknown>): PlotlyFig
   return { title, description, data, layout, traceCount: data.length, pointCount };
 }
 
+export async function renderPlotlyFigureToPng(figure: PlotlyFigure) {
+  const plotlyModule = await import('plotly.js-dist-min');
+  const plotly = plotlyModule.default;
+  const node = document.createElement('div');
+  const height = Math.min(720, Math.max(360, Number(figure.layout.height) || 480));
+  node.style.cssText = `position:fixed;left:-10000px;top:0;width:1200px;height:${height}px;background:#fff;`;
+  document.body.appendChild(node);
+
+  try {
+    await plotly.react(node, figure.data, { ...figure.layout, width: 1200, height }, {
+      staticPlot: true,
+      displayModeBar: false,
+      responsive: false,
+    });
+    const dataUrl = await plotly.toImage(node, { format: 'png', width: 1200, height, scale: 1 });
+    const separator = dataUrl.indexOf(',');
+    if (separator < 0) throw new Error('Plotly returned an invalid PNG payload.');
+    return dataUrl.slice(separator + 1);
+  } finally {
+    plotly.purge(node);
+    node.remove();
+  }
+}
+
 export function PlotlyCanvas({ figure }: { figure: PlotlyFigure }) {
   const plotRef = useRef<HTMLDivElement>(null);
   const [renderState, setRenderState] = useState<'loading' | 'ready' | 'error'>('loading');

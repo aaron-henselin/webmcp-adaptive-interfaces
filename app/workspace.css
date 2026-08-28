@@ -193,7 +193,8 @@
 .html-widget h2, .html-widget h3, .html-widget h4 { margin: 0 0 9px; color: var(--ink); letter-spacing: -.035em; }
 .html-widget p { margin: 7px 0; color: #4e5d67; line-height: 1.55; }
 .html-widget small, .html-widget time { color: #7a8790; }
-.html-widget a { color: var(--steam); }
+.html-widget a { width: fit-content; margin-top: 12px; padding: 9px 12px; display: inline-flex; align-items: center; border-radius: 8px; color: white; background: var(--ink); font-size: 10px; font-weight: 620; text-decoration: none; }
+.html-widget a:hover { background: var(--steam); }
 .html-widget ul, .html-widget ol { margin: 10px 0; padding-left: 20px; }
 
 .tabs-header { align-items: center; }

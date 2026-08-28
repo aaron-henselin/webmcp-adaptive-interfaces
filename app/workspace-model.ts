@@ -52,7 +52,8 @@ export const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "cu
 
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const BINDING_PATTERN = /{{\s*([A-Za-z][A-Za-z0-9_.]*)\s*}}/g;
-const ALLOWED_BINDINGS = new Set(["today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"]);
+export const HTML_BINDINGS = ["time.greeting", "user.firstName", "today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"] as const;
+const ALLOWED_BINDINGS = new Set<string>(HTML_BINDINGS);
 const ALLOWED_TAGS = new Set(["P", "DIV", "SPAN", "H2", "H3", "H4", "STRONG", "EM", "SMALL", "TIME", "UL", "OL", "LI", "A", "BR", "HR"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -290,9 +291,11 @@ function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
-export function renderHtmlWidget(markup: string, values: { pageTitle: string; recordCount: number }) {
+export function renderHtmlWidget(markup: string, values: { pageTitle: string; recordCount: number; userFirstName: string }) {
   const now = new Date();
+  const greeting = now.getHours() < 12 ? "Good morning" : now.getHours() < 18 ? "Good afternoon" : "Good evening";
   const bindings: Record<string, string> = {
+    "time.greeting": greeting, "user.firstName": values.userFirstName,
     "today.long": now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
     "today.short": now.toLocaleDateString(), currentYear: String(now.getFullYear()),
     "page.title": values.pageTitle, "catalog.recordCount": values.recordCount.toLocaleString(),
@@ -307,7 +310,10 @@ export function renderHtmlWidget(markup: string, values: { pageTitle: string; re
         catch { element.removeAttribute(attribute.name); }
       } else element.removeAttribute(attribute.name);
     }
-    if (element.tagName === "A") { element.setAttribute("rel", "noreferrer"); element.setAttribute("target", "_blank"); }
+    if (element.tagName === "A") {
+      const href = element.getAttribute("href") ?? "";
+      if (!href.startsWith("#") && !href.startsWith("/")) { element.setAttribute("rel", "noreferrer"); element.setAttribute("target", "_blank"); }
+    }
   }
   return document.body.innerHTML;
 }

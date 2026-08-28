@@ -11,14 +11,20 @@
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "steamspy:download": "node scripts/download-steamspy.mjs",
-    "steamspy:build-static": "node scripts/build-steamspy-static.mjs"
+    "steamspy:build-static": "node scripts/build-steamspy-static.mjs",
+    "db:generate": "drizzle-kit generate",
+    "catalog:profile": "node scripts/import-steam-catalog.mjs --profile",
+    "catalog:build-import": "node scripts/import-steam-catalog.mjs",
+    "catalog:split-import": "node scripts/split-d1-import.mjs"
   },
   "dependencies": {
     "arquero": "^8.0.3",
+    "drizzle-orm": "^0.45.2",
     "next": "16.2.6",
     "plotly.js-dist-min": "^4.0.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "stream-json": "^3.5.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -28,8 +34,10 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@types/stream-json": "^1.7.8",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "^0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "react-server-dom-webpack": "19.2.6",

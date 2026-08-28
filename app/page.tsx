@@ -1,1 +1,1 @@
-export { default } from "./steamspy-page";
+export { default } from "./catalog-page";

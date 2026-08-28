@@ -258,7 +258,7 @@ export function normalizeAnalyticsBinding(value: unknown): AnalyticsBinding | nu
       name: "steamspy_snapshot",
       filters: {
         query: typeof filters.query === "string" ? filters.query.slice(0, 120) : "",
-        ownerBand: typeof filters.ownerBand === "string" && (filters.ownerBand === "All owner ranges" || OWNER_BANDS.includes(filters.ownerBand)) ? filters.ownerBand : "All owner ranges",
+        ownerBand: typeof filters.ownerBand === "string" && (filters.ownerBand === "All owner ranges" || OWNER_BANDS.includes(filters.ownerBand as (typeof OWNER_BANDS)[number])) ? filters.ownerBand : "All owner ranges",
         priceBand: typeof filters.priceBand === "string" && (filters.priceBand === "All prices" || PRICE_BANDS.includes(filters.priceBand as (typeof PRICE_BANDS)[number])) ? filters.priceBand : "All prices",
         minPositiveRatio: typeof filters.minPositiveRatio === "number" ? Math.min(1, Math.max(0, filters.minPositiveRatio)) : 0,
         minCcu: typeof filters.minCcu === "number" ? Math.max(0, Math.floor(filters.minCcu)) : 0,

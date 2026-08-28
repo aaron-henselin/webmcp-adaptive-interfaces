@@ -1,6 +1,6 @@
 # Steam Desk
 
-Steam Desk is an interactive dashboard for exploring a locally cached SteamSpy market snapshot. It presents 20,000 games with analytics and visualizations built from a reproducible set of downloaded source pages.
+Steam Desk is an interactive dashboard for exploring a database-backed catalog of 139,556 Steam games. Browsing, full-text search, genre/tag analysis, and report execution run against Cloudflare D1; the browser receives only bounded result sets.
 
 ## Requirements
 
@@ -15,47 +15,36 @@ copy .env.example .env.local
 npm run dev
 ```
 
-On macOS or Linux, use `cp .env.example .env.local` instead of `copy`.
-
-`SITE_ORIGIN` controls the absolute base URL used in social-sharing metadata. Update it in `.env.local` when running from a different origin.
+On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the absolute base URL used by social metadata.
 
 ## Commands
 
 - `npm run dev` starts the local development server.
 - `npm run build` creates a production build.
-- `npm run start` serves the production build.
-- `npm run lint` checks the source with ESLint.
-- `npm run steamspy:download` downloads resumable SteamSpy source pages.
-- `npm run steamspy:build-static` rebuilds the checked-in application snapshot from downloaded pages.
+- `npm run lint` checks the source.
+- `npm run db:generate` generates Drizzle migrations.
+- `npm run catalog:profile` profiles and validates the ignored source archive.
+- `npm run catalog:build-import` creates a normalized D1 SQL import.
+- `npm run catalog:split-import` splits that import into bounded, checksummed files.
 
 ## Site tools
 
-Steam Desk registers three narrowly scoped WebMCP tools on the top-level page:
+Steam Desk registers three WebMCP tools:
 
-- `describe_steamspy_snapshot` returns schema and capability metadata only.
-- `create_report` executes and saves a report, then returns a compact receipt containing its ID, mode, row count, and browser state.
-- `render_report` reloads a saved report and returns either bounded Markdown or a static PNG. Its `auto` mode selects PNG for chart and mixed reports and Markdown otherwise.
+- `describe_steam_catalog` returns database field and analytics metadata.
+- `create_report` executes and saves a bounded database report.
+- `render_report` recreates a saved report as Markdown or a PNG.
 
-`render_report` never returns raw rows or a Plotly presentation payload in structured content. Markdown output is capped at 20 rows and 8 columns. Image mode is available only for chart and mixed reports.
-
-Creation errors use stable codes with a `retryable` flag. Invalid presentation, data, result-field, report-ID, lookup, and render-mode errors are not retryable; unexpected execution and image-rendering failures are retryable.
+Genre, tag, category, developer, publisher, and language reports use the analytics `explode` operation before grouping. Weighted tag reports can also use `tagWeight`.
 
 ## Data workflow
 
-Raw SteamSpy downloads are stored under `data/steamspy/raw/` and intentionally excluded from Git. The compact application snapshot at `public/data/steamspy-snapshot.json` is checked in so builds do not depend on a live third-party request. The browser fetches this cacheable asset once at runtime, keeping the 20,000 records out of the initial JavaScript bundle.
+The ignored source archive is `data/steam-catalog/raw/games.json`. The runtime source of truth is D1; neither the 932 MB source file nor the full game catalog is downloaded by the browser.
 
-To refresh the snapshot:
-
-```powershell
-npm run steamspy:download -- --snapshot YYYY-MM-DD
-$env:STEAMSPY_SNAPSHOT = "YYYY-MM-DD"
-npm run steamspy:build-static
-```
-
-The download script respects SteamSpy's request limit and can resume an interrupted run. On macOS or Linux, set the environment variable with `export STEAMSPY_SNAPSHOT=YYYY-MM-DD`.
+The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`. Generated import files live under the ignored `work/steam-catalog/` directory. See [docs/database.md](docs/database.md) for refresh, local loading, and query-boundary details.
 
 ## Repository notes
 
-- Local environment files are ignored; `.env.example` is the safe template to commit.
-- Build output, framework caches, dependencies, and raw source downloads are ignored.
-- `.openai/hosting.json` contains the Sites project configuration used for deployment.
+- Local environment files, D1 state, generated imports, dependencies, and raw source data are ignored.
+- `.openai/hosting.json` declares the Sites-managed D1 binding.
+- Saved report definitions remain device-local and rerun against D1 when opened.

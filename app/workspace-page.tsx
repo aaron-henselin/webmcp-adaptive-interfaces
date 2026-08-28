@@ -7,6 +7,7 @@ import { bindCatalogRowsToFigure } from "./catalog-visualization";
 import { formatCompact, formatOwnerRange, formatPercent, formatPlaytime, formatPrice, formatSnapshotDate } from "./steamspy-data";
 import { normalizePlotlyFigure, PlotlyCanvas, PLOTLY_TRACE_TYPES, renderPlotlyFigureToPng, type PlotlyFigure } from "./plotly-visualization";
 import { PAGE_COMPOSITION_GUIDE } from "./page-composition-guide";
+import AudienceOnboarding from "./audience-onboarding";
 import "./workspace.css";
 import {
   HTML_BINDINGS, MAX_HTML_LENGTH, SPANS, VALUE_FORMATS, addReport, applyOperations, findBlock, loadWorkspace, normalizePresentation,
@@ -189,6 +190,7 @@ export default function WorkspacePage() {
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({});
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
+  const [editingAudience, setEditingAudience] = useState(false);
   const workspaceRef = useRef<Workspace | null>(null);
   const undoRef = useRef<Workspace | null>(null);
   const workspaceSectionRef = useRef<HTMLElement>(null);
@@ -258,6 +260,12 @@ export default function WorkspacePage() {
     catch { /* Invalid manual moves leave the current layout unchanged. */ }
   }, [commitWorkspace]);
 
+  const audienceReady = Boolean(workspace?.audience.firstName && workspace?.audience.jobRole);
+  const saveAudience = (firstName: string, jobRole: string) => {
+    applyUiOperations([{ op: "setAudience", firstName, jobRole }]);
+    setEditingAudience(false);
+  };
+
   const removeBlock = (id: string) => applyUiOperations([{ op: "remove", target: id }]);
   const cycleSpan = (id: string, current: BlockSpan) => applyUiOperations([{ op: "setSpan", target: id, span: SPANS[(SPANS.indexOf(current) + 1) % SPANS.length] }]);
   const selectBlock = (id: string) => applyUiOperations([{ op: "select", target: id }]);
@@ -285,8 +293,47 @@ export default function WorkspacePage() {
   const renderChart = (type: ChartType) => { if (!catalog) return; const titles = { owners: "Estimated ownership", reviews: "Review sentiment", price: "Price bands" } as const; setVisualization({ type, title: titles[type], subtitle: `Database summary for ${catalog.query.total.toLocaleString()} matching games`, items: catalog.distributions[type] }); window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); };
 
   return <main className="site-shell"><section className="release-desk" aria-labelledby="page-title"><header className="desk-header"><div><p className="eyebrow"><span /> WebMCP page workspace</p><h1 id="page-title">Steam Desk</h1><p className="dek">Describe the outcome. WebMCP chooses the reports, hierarchy, and layout.</p></div><div className="header-meta"><div className={`agent-state state-${webMcpStatus}`}><span />{webMcpStatus === "connected" ? "WebMCP connected" : webMcpStatus === "preview" ? "WebMCP preview" : "Checking WebMCP"}</div><div className="catalog-status"><strong>{catalog ? catalog.meta.recordCount.toLocaleString() : "—"}</strong><span>{catalog ? `games · imported ${formatSnapshotDate(catalog.meta.importedAt.slice(0, 10))}` : catalogError || "loading database"}</span></div></div></header>
-    <section className="page-workspace" ref={workspaceSectionRef} aria-labelledby="workspace-title"><header className="page-workspace-header"><div><p className="eyebrow"><span /> Local page</p><h2 id="workspace-title">Report canvas</h2><p>Describe what the page should help you do. WebMCP will first confirm your name and job role, then choose the composition.</p></div><div className="workspace-actions"><span>{workspace?.blocks.length ?? 0} blocks</span><button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button><button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button></div></header>{workspace ? workspace.blocks.length ? <div className="page-canvas" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { if (event.currentTarget !== event.target) return; const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, toRootEnd: true }]); }}>{workspace.blocks.map((block) => block.type === "tabs" ? renderTabs(block) : renderLeaf(block, workspace.blocks))}</div> : <div className="workspace-empty"><span aria-hidden="true">⌁</span><div><strong>Your page is ready for its first block</strong><p>Try: “Build me a personalized daily briefing,” or “Create an at-a-glance market overview.”</p></div></div> : <div className="workspace-empty"><div><strong>Loading your local page…</strong></div></div>}<footer className="page-workspace-footer"><span>Stored in this browser</span><span>{workspace?.audience.jobRole ? workspace.audience.firstName + " · " + workspace.audience.jobRole : "Audience not set"}</span><span>Catalog results run against D1</span><span>Selected: {workspace ? findBlock(workspace, workspace.selectedBlockId)?.title ?? "none" : "none"}</span></footer></section>
-    <section className="prompt-guide" aria-labelledby="prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP confirms your audience context, then chooses widths, hierarchy, personalization, and the next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section>
+    <section className="page-workspace" ref={workspaceSectionRef} aria-labelledby="workspace-title">
+      <header className="page-workspace-header">
+        <div>
+          <p className="eyebrow"><span /> {audienceReady ? "Step 2 of 2 · Compose" : "Step 1 of 2 · Audience"}</p>
+          <h2 id="workspace-title">{audienceReady && !editingAudience ? "Report canvas" : "Know your audience"}</h2>
+          <p>{audienceReady && !editingAudience ? "Composing for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + ". Describe what this page should help you do." : "A useful page starts with who it is for. Confirm two details before WebMCP chooses the content and layout."}</p>
+        </div>
+        <div className="workspace-actions">
+          {audienceReady && !editingAudience ? <>
+            <span>{workspace?.blocks.length ?? 0} blocks</span>
+            <button type="button" onClick={() => setEditingAudience(true)}>Edit audience</button>
+            <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
+            <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
+          </> : <span>Audience setup</span>}
+        </div>
+      </header>
+      {workspace && (!audienceReady || editingAudience) ? (
+        <AudienceOnboarding
+          initialFirstName={workspace.audience.firstName}
+          initialJobRole={workspace.audience.jobRole}
+          canCancel={audienceReady}
+          onSave={saveAudience}
+          onCancel={() => setEditingAudience(false)}
+        />
+      ) : workspace ? workspace.blocks.length ? (
+        <div className="page-canvas" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { if (event.currentTarget !== event.target) return; const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, toRootEnd: true }]); }}>
+          {workspace.blocks.map((block) => block.type === "tabs" ? renderTabs(block) : renderLeaf(block, workspace.blocks))}
+        </div>
+      ) : (
+        <div className="workspace-empty"><span aria-hidden="true">⌁</span><div><strong>Your page is ready for its first block</strong><p>Tell WebMCP what the page should help you accomplish. It will choose the reports, hierarchy, and layout.</p></div></div>
+      ) : (
+        <div className="workspace-empty"><div><strong>Loading your local page…</strong></div></div>
+      )}
+      <footer className="page-workspace-footer">
+        <span>Stored in this browser</span>
+        <span>{workspace?.audience.jobRole ? workspace.audience.firstName + " · " + workspace.audience.jobRole : "Audience setup required"}</span>
+        <span>Catalog results run against D1</span>
+        <span>Selected: {workspace ? findBlock(workspace, workspace.selectedBlockId)?.title ?? "none" : "none"}</span>
+      </footer>
+    </section>
+    {audienceReady && !editingAudience ? <section className="prompt-guide" aria-labelledby="prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP already knows who it is composing for, so it can choose widths, hierarchy, personalization, and the next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
     <div id="catalog-browser" className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label><button type="button" className="view-button" disabled={!catalog} onClick={() => renderChart("owners")}>Quick view <span>↗</span></button></div><div className="result-strip"><span>{catalog ? <><strong>{total.toLocaleString()}</strong> games match · queried from D1</> : catalogError || "Loading catalog database…"}</span><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setPage(0); }}>Reset filters</button></div>
     <div className="table-wrap"><table><thead><tr><th><button type="button" onClick={() => changeSort("title")}>Game <span>{sortIndicator("title")}</span></button></th><th><button type="button" onClick={() => changeSort("ownersMax")}>Owners <span>{sortIndicator("ownersMax")}</span></button></th><th><button type="button" onClick={() => changeSort("priceCents")}>Price <span>{sortIndicator("priceCents")}</span></button></th><th><button type="button" onClick={() => changeSort("positiveRatio")}>Reviews <span>{sortIndicator("positiveRatio")}</span></button></th><th><button type="button" onClick={() => changeSort("ccu")}>Players <span>{sortIndicator("ccu")}</span></button></th><th>Avg. playtime</th></tr></thead><tbody>{games.map((game) => { const accent = Math.abs(game.id) % coverMarks.length; return <tr key={game.id}><td><div className="game-cell"><span className={`cover cover-${accent}`} aria-hidden="true"><i>{coverMarks[accent]}</i><b>{game.title.split(" ").map((word) => word[0]).slice(0, 2).join("")}</b></span><span><strong>{game.title}</strong><small>{game.developer}{game.genres.length ? ` · ${game.genres.slice(0, 2).join(", ")}` : ""}</small></span></div></td><td><span className="genre-pill" title={game.owners}>{formatOwnerRange(game)}</span></td><td className="price-cell">{formatPrice(game.priceCents)}</td><td className="wishlist-cell">{formatPercent(game.positiveRatio)}</td><td className="wishlist-cell">{formatCompact(game.ccu)}</td><td><span className="status">{formatPlaytime(game.averageForever)}</span></td></tr>; })}{!games.length && <tr><td colSpan={6}><div className="empty-state"><strong>{catalogError ? "Catalog unavailable" : "No games found"}</strong><span>{catalogError || "Try broader filters."}</span></div></td></tr>}</tbody></table></div><footer className="desk-footer"><span>Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}</span><div><button type="button" disabled={visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer></section>
     {visualization ? <section className="visualization-panel" ref={visualizationRef}><header><div><p className="eyebrow"><span /> Database quick view</p><h2>{visualization.title}</h2><p>{visualization.subtitle}</p></div><div className="chart-tabs"><button className={visualization.type === "owners" ? "active" : ""} onClick={() => renderChart("owners")}>Owners</button><button className={visualization.type === "reviews" ? "active" : ""} onClick={() => renderChart("reviews")}>Reviews</button><button className={visualization.type === "price" ? "active" : ""} onClick={() => renderChart("price")}>Price</button></div></header><BarChart visualization={visualization} /><footer><span>Aggregated by D1 for the current filters</span><button type="button" onClick={() => setVisualization(null)}>Close quick view</button></footer></section> : null}</main>;

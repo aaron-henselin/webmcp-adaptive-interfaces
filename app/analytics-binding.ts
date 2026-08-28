@@ -496,7 +496,7 @@ export async function runAnalyticsBinding(binding: AnalyticsBinding, now = new D
       let windowTable = operation.partitionBy.length ? table.groupby(...operation.partitionBy) : table.ungroup();
       if (sort.length) windowTable = windowTable.orderby(...sort);
       const expressions = Object.fromEntries(operation.measures.map((measure) => [measure.as, windowExpression(aq, measure)]));
-      table = windowTable.derive(expressions).ungroup().unorder();
+      table = windowTable.derive(expressions).ungroup();
     } else if (operation.operation === 'calculate') {
       ensureColumns(table, [operation.left, ...(operation.right.field ? [operation.right.field] : [])]);
       const calculation = aq.escape((row: Record<string, unknown>) => {
@@ -534,8 +534,7 @@ function clearTraceData(trace: PlotlyTrace) {
   return next;
 }
 
-export async function regenerateAnalyticsFigure(figure: PlotlyFigure, binding: AnalyticsBinding) {
-  const rows = await runAnalyticsBinding(binding);
+function bindRowsToAnalyticsFigure(figure: PlotlyFigure, binding: AnalyticsBinding, rows: Record<string, unknown>[]) {
   const grouped = new Map<string, Record<string, unknown>[]>();
   for (const row of rows) {
     const key = binding.encoding.series ? String(row[binding.encoding.series] ?? 'Unspecified') : '';
@@ -557,4 +556,13 @@ export async function regenerateAnalyticsFigure(figure: PlotlyFigure, binding: A
     return trace;
   });
   return { title: figure.title, description: figure.description, data, layout: figure.layout };
+}
+
+export async function renderAnalyticsReport(figure: PlotlyFigure, binding: AnalyticsBinding) {
+  const rows = await runAnalyticsBinding(binding);
+  return { rows, figure: bindRowsToAnalyticsFigure(figure, binding, rows) };
+}
+
+export async function regenerateAnalyticsFigure(figure: PlotlyFigure, binding: AnalyticsBinding) {
+  return (await renderAnalyticsReport(figure, binding)).figure;
 }

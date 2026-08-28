@@ -102,14 +102,15 @@ export function PlotlyCanvas({ figure }: { figure: PlotlyFigure }) {
   useEffect(() => {
     let active = true;
     let plotly: typeof import('plotly.js-dist-min').default | null = null;
+    const plotElement = plotRef.current;
 
     const draw = async () => {
       try {
         setRenderState('loading');
-        const module = await import('plotly.js-dist-min');
-        plotly = module.default;
-        if (!active || !plotRef.current) return;
-        await plotly.react(plotRef.current, figure.data, figure.layout, {
+        const plotlyModule = await import('plotly.js-dist-min');
+        plotly = plotlyModule.default;
+        if (!active || !plotElement) return;
+        await plotly.react(plotElement, figure.data, figure.layout, {
           responsive: true,
           displaylogo: false,
           scrollZoom: false,
@@ -125,7 +126,7 @@ export function PlotlyCanvas({ figure }: { figure: PlotlyFigure }) {
     void draw();
     return () => {
       active = false;
-      if (plotly && plotRef.current) plotly.purge(plotRef.current);
+      if (plotly && plotElement) plotly.purge(plotElement);
     };
   }, [figure]);
 

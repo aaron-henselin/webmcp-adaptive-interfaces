@@ -65,6 +65,7 @@ tbody tr:hover { background: #f8fbfc; }
 .empty-state { min-height: 240px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 7px; color: var(--muted); }
 .empty-state strong { color: var(--ink); font-size: 15px; }.empty-state span { font-size: 12px; }
 .saved-reports { width: min(1180px, 100%); margin-top: 18px; overflow: hidden; border: 1px solid #d5dde3; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 14px 40px rgba(35,55,68,.055); backdrop-filter: blur(16px); }
+.release-desk > .saved-reports { width: auto; margin: 18px 22px 0; }
 .saved-reports-header { min-height: 86px; padding: 20px 24px 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--rule); }
 .saved-reports-header .eyebrow { margin-bottom: 8px; }
 .saved-reports h2 { margin: 0; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; font-size: 24px; font-weight: 620; letter-spacing: -.04em; }

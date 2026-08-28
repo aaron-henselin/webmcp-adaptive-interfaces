@@ -9,7 +9,9 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "steamspy:download": "node scripts/download-steamspy.mjs",
+    "steamspy:build-static": "node scripts/build-steamspy-static.mjs"
   },
   "dependencies": {
     "arquero": "^8.0.3",

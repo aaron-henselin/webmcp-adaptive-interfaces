@@ -10,20 +10,25 @@ type ChartType = 'genre' | 'timeline' | 'price';
 type ChartItem = { label: string; value: number };
 type Visualization = { type: ChartType; title: string; subtitle: string; items: ChartItem[] };
 type ReleaseField = 'id' | 'title' | 'releaseDate' | 'genre' | 'secondaryGenre' | 'price' | 'status' | 'studio' | 'wishlists';
+type DerivedReleaseField = 'daysUntilRelease' | 'releaseWeek' | 'releaseMonth' | 'releaseWeekday';
+type BindingField = ReleaseField | DerivedReleaseField;
+type RelativeDatePreset = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_7_days' | 'next_30_days' | 'next_90_days' | 'this_month' | 'next_month';
+type RelativeDateRange = { preset: RelativeDatePreset; weekStartsOn: 'monday' | 'sunday' };
 type ReleaseDataBinding = {
   source: 'release_calendar';
   query: string;
   genre: string;
   startDate: string;
   endDate: string;
+  relativeDateRange: RelativeDateRange | null;
   limit: number;
-  xField?: ReleaseField;
-  yField?: ReleaseField;
-  labelsField?: ReleaseField;
-  valuesField?: ReleaseField;
-  textField?: ReleaseField;
-  groupByField?: ReleaseField;
-  hoverFields: ReleaseField[];
+  xField?: BindingField;
+  yField?: BindingField;
+  labelsField?: BindingField;
+  valuesField?: BindingField;
+  textField?: BindingField;
+  groupByField?: BindingField;
+  hoverFields: BindingField[];
 };
 type SavedReport = { id: string; savedAt: string; figure: PlotlyFigure; binding: ReleaseDataBinding | null };
 
@@ -31,6 +36,19 @@ const PAGE_SIZE = 12;
 const MAX_SAVED_REPORTS = 8;
 const SAVED_REPORTS_KEY = 'steam-desk:saved-reports:v1';
 const RELEASE_FIELDS: ReleaseField[] = ['id', 'title', 'releaseDate', 'genre', 'secondaryGenre', 'price', 'status', 'studio', 'wishlists'];
+const DERIVED_RELEASE_FIELDS: DerivedReleaseField[] = ['daysUntilRelease', 'releaseWeek', 'releaseMonth', 'releaseWeekday'];
+const BINDING_FIELDS: BindingField[] = [...RELEASE_FIELDS, ...DERIVED_RELEASE_FIELDS];
+const RELATIVE_DATE_PRESETS: RelativeDatePreset[] = ['today', 'tomorrow', 'this_week', 'next_week', 'next_7_days', 'next_30_days', 'next_90_days', 'this_month', 'next_month'];
+const RELATIVE_DATE_RANGE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'A date window resolved again whenever the tool runs or a saved report is reopened. next_week means the next calendar week.',
+  properties: {
+    preset: { type: 'string', enum: RELATIVE_DATE_PRESETS },
+    weekStartsOn: { type: 'string', enum: ['monday', 'sunday'], default: 'monday' },
+  },
+  required: ['preset'],
+};
 
 const coverMarks = ['◜', '◇', '◉', '⌁', '△', '✣', '⊙', '╱'];
 
@@ -99,11 +117,70 @@ function statusLabel(game: Game) {
   return `In ${Math.ceil(days / 7)} weeks`;
 }
 
-function normalizeToolGames(input: Record<string, unknown>) {
+function calendarDate(value = new Date()) {
+  return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+}
+
+function addCalendarDays(value: Date, days: number) {
+  return new Date(value.getTime() + days * 86_400_000);
+}
+
+function isoCalendarDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function normalizeRelativeDateRange(value: unknown): RelativeDateRange | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  if (typeof input.preset !== 'string' || !RELATIVE_DATE_PRESETS.includes(input.preset as RelativeDatePreset)) return null;
+  return {
+    preset: input.preset as RelativeDatePreset,
+    weekStartsOn: input.weekStartsOn === 'sunday' ? 'sunday' : 'monday',
+  };
+}
+
+function resolveDateRange(input: Record<string, unknown>, now = new Date()) {
+  const relative = normalizeRelativeDateRange(input.relativeDateRange);
+  if (!relative) {
+    return {
+      startDate: typeof input.startDate === 'string' ? input.startDate : '',
+      endDate: typeof input.endDate === 'string' ? input.endDate : '',
+      relativeDateRange: null,
+    };
+  }
+
+  const today = calendarDate(now);
+  const dayOfWeek = today.getUTCDay();
+  const weekOffset = relative.weekStartsOn === 'monday' ? (dayOfWeek + 6) % 7 : dayOfWeek;
+  const thisWeekStart = addCalendarDays(today, -weekOffset);
+  let start = today;
+  let end = today;
+
+  if (relative.preset === 'tomorrow') start = end = addCalendarDays(today, 1);
+  else if (relative.preset === 'this_week') {
+    start = thisWeekStart;
+    end = addCalendarDays(thisWeekStart, 6);
+  } else if (relative.preset === 'next_week') {
+    start = addCalendarDays(thisWeekStart, 7);
+    end = addCalendarDays(start, 6);
+  } else if (relative.preset === 'next_7_days') end = addCalendarDays(today, 6);
+  else if (relative.preset === 'next_30_days') end = addCalendarDays(today, 29);
+  else if (relative.preset === 'next_90_days') end = addCalendarDays(today, 89);
+  else if (relative.preset === 'this_month') {
+    start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
+  } else if (relative.preset === 'next_month') {
+    start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
+    end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 2, 0));
+  }
+
+  return { startDate: isoCalendarDate(start), endDate: isoCalendarDate(end), relativeDateRange: relative };
+}
+
+function normalizeToolGames(input: Record<string, unknown>, now = new Date()) {
   const search = typeof input.query === 'string' ? input.query : '';
   const genre = typeof input.genre === 'string' && GENRES.includes(input.genre as (typeof GENRES)[number]) ? input.genre : 'All genres';
-  const startDate = typeof input.startDate === 'string' ? input.startDate : '';
-  const endDate = typeof input.endDate === 'string' ? input.endDate : '';
+  const { startDate, endDate } = resolveDateRange(input, now);
   return GAMES.filter((game) => {
     const haystack = `${game.title} ${game.studio} ${game.genre}`.toLocaleLowerCase();
     return (!search || haystack.includes(search.toLocaleLowerCase()))
@@ -113,8 +190,8 @@ function normalizeToolGames(input: Record<string, unknown>) {
   });
 }
 
-function releaseField(value: unknown): ReleaseField | undefined {
-  return typeof value === 'string' && RELEASE_FIELDS.includes(value as ReleaseField) ? value as ReleaseField : undefined;
+function bindingField(value: unknown): BindingField | undefined {
+  return typeof value === 'string' && BINDING_FIELDS.includes(value as BindingField) ? value as BindingField : undefined;
 }
 
 function normalizeReleaseBinding(value: unknown): ReleaseDataBinding | null {
@@ -122,7 +199,7 @@ function normalizeReleaseBinding(value: unknown): ReleaseDataBinding | null {
   const input = value as Record<string, unknown>;
   if (input.source !== 'release_calendar') return null;
   const hoverFields = Array.isArray(input.hoverFields)
-    ? input.hoverFields.map(releaseField).filter((field): field is ReleaseField => Boolean(field)).slice(0, 8)
+    ? input.hoverFields.map(bindingField).filter((field): field is BindingField => Boolean(field)).slice(0, 8)
     : [];
   const requestedLimit = typeof input.limit === 'number' ? Math.floor(input.limit) : 2000;
   return {
@@ -131,31 +208,47 @@ function normalizeReleaseBinding(value: unknown): ReleaseDataBinding | null {
     genre: typeof input.genre === 'string' ? input.genre : 'All genres',
     startDate: typeof input.startDate === 'string' ? input.startDate : '',
     endDate: typeof input.endDate === 'string' ? input.endDate : '',
+    relativeDateRange: normalizeRelativeDateRange(input.relativeDateRange),
     limit: Math.min(2000, Math.max(1, requestedLimit)),
-    xField: releaseField(input.xField),
-    yField: releaseField(input.yField),
-    labelsField: releaseField(input.labelsField),
-    valuesField: releaseField(input.valuesField),
-    textField: releaseField(input.textField),
-    groupByField: releaseField(input.groupByField),
+    xField: bindingField(input.xField),
+    yField: bindingField(input.yField),
+    labelsField: bindingField(input.labelsField),
+    valuesField: bindingField(input.valuesField),
+    textField: bindingField(input.textField),
+    groupByField: bindingField(input.groupByField),
     hoverFields,
   };
+}
+
+function bindingValue(game: Game, field: BindingField, now: Date, weekStartsOn: 'monday' | 'sunday') {
+  if (RELEASE_FIELDS.includes(field as ReleaseField)) return game[field as ReleaseField];
+  if (field === 'releaseMonth') return game.releaseDate.slice(0, 7);
+
+  const release = new Date(game.releaseDate + 'T00:00:00Z');
+  if (field === 'daysUntilRelease') return Math.round((release.getTime() - calendarDate(now).getTime()) / 86_400_000);
+  if (field === 'releaseWeekday') return new Intl.DateTimeFormat('en', { weekday: 'short', timeZone: 'UTC' }).format(release);
+
+  const dayOfWeek = release.getUTCDay();
+  const weekOffset = weekStartsOn === 'monday' ? (dayOfWeek + 6) % 7 : dayOfWeek;
+  return isoCalendarDate(addCalendarDays(release, -weekOffset));
 }
 
 function regenerateSavedFigure(report: SavedReport) {
   if (!report.binding) return normalizePlotlyFigure(report.figure as unknown as Record<string, unknown>);
 
   const binding = report.binding;
-  const games = sortGames(normalizeToolGames(binding as unknown as Record<string, unknown>), 'releaseDate', 'asc').slice(0, binding.limit);
+  const now = new Date();
+  const games = sortGames(normalizeToolGames(binding as unknown as Record<string, unknown>, now), 'releaseDate', 'asc').slice(0, binding.limit);
+  const weekStartsOn = binding.relativeDateRange?.weekStartsOn ?? 'monday';
   const grouped = new Map<string, Game[]>();
   for (const game of games) {
-    const key = binding.groupByField ? String(game[binding.groupByField] ?? 'Unspecified') : '';
+    const key = binding.groupByField ? String(bindingValue(game, binding.groupByField, now, weekStartsOn) ?? 'Unspecified') : '';
     const existing = grouped.get(key);
     if (existing) existing.push(game);
     else grouped.set(key, [game]);
   }
 
-  const groups = Array.from(grouped.entries()).slice(0, 12);
+  const groups = (grouped.size ? Array.from(grouped.entries()) : [['', []] as [string, Game[]]]).slice(0, 12);
   const data = groups.map(([name, rows], index) => {
     const namedTemplate = report.figure.data.find((trace) => typeof trace.name === 'string' && trace.name === name);
     const template = namedTemplate ?? report.figure.data[index % report.figure.data.length] ?? { type: 'scatter' };
@@ -167,12 +260,12 @@ function regenerateSavedFigure(report: SavedReport) {
     delete trace.text;
     delete trace.customdata;
     if (binding.groupByField) trace.name = name;
-    if (binding.xField) trace.x = rows.map((game) => game[binding.xField!]);
-    if (binding.yField) trace.y = rows.map((game) => game[binding.yField!]);
-    if (binding.labelsField) trace.labels = rows.map((game) => game[binding.labelsField!]);
-    if (binding.valuesField) trace.values = rows.map((game) => game[binding.valuesField!]);
-    if (binding.textField) trace.text = rows.map((game) => String(game[binding.textField!] ?? ''));
-    if (binding.hoverFields.length) trace.customdata = rows.map((game) => binding.hoverFields.map((field) => game[field]));
+    if (binding.xField) trace.x = rows.map((game) => bindingValue(game, binding.xField!, now, weekStartsOn));
+    if (binding.yField) trace.y = rows.map((game) => bindingValue(game, binding.yField!, now, weekStartsOn));
+    if (binding.labelsField) trace.labels = rows.map((game) => bindingValue(game, binding.labelsField!, now, weekStartsOn));
+    if (binding.valuesField) trace.values = rows.map((game) => bindingValue(game, binding.valuesField!, now, weekStartsOn));
+    if (binding.textField) trace.text = rows.map((game) => String(bindingValue(game, binding.textField!, now, weekStartsOn) ?? ''));
+    if (binding.hoverFields.length) trace.customdata = rows.map((game) => binding.hoverFields.map((field) => bindingValue(game, field, now, weekStartsOn)));
     return trace;
   });
 
@@ -188,6 +281,12 @@ function savedAtLabel(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Saved locally';
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+}
+
+function bindingLabel(binding: ReleaseDataBinding | null) {
+  if (!binding) return 'Snapshot · Plotly spec';
+  const preset = binding.relativeDateRange?.preset;
+  return preset ? 'Live · ' + preset.replaceAll('_', ' ') : 'Live · release calendar';
 }
 
 function BarChart({ visualization }: { visualization: Visualization }) {
@@ -296,7 +395,7 @@ export default function Home() {
     const tools = [
       {
         name: 'read_release_calendar',
-        description: 'Read synthetic Steam release-calendar rows. Filter by query, genre, or ISO date range and return structured game records.',
+        description: 'Read synthetic Steam release-calendar rows. Filter by query, genre, absolute ISO dates, or a dynamic relative window such as next_week.',
         inputSchema: {
           type: 'object', additionalProperties: false,
           properties: {
@@ -304,21 +403,28 @@ export default function Home() {
             genre: { type: 'string', enum: [...GENRES] },
             startDate: { type: 'string', description: 'Inclusive ISO date, YYYY-MM-DD.' },
             endDate: { type: 'string', description: 'Inclusive ISO date, YYYY-MM-DD.' },
+            relativeDateRange: RELATIVE_DATE_RANGE_SCHEMA,
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
           },
         },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
-          const matches = sortGames(normalizeToolGames(input), 'releaseDate', 'asc');
+          const now = new Date();
+          const resolvedDateRange = resolveDateRange(input, now);
+          const matches = sortGames(normalizeToolGames(input, now), 'releaseDate', 'asc');
           const limit = Math.min(100, Math.max(1, typeof input.limit === 'number' ? Math.floor(input.limit) : 25));
           const rows = matches.slice(0, limit).map((game) => ({
             id: game.id, title: game.title, releaseDate: game.releaseDate, genre: game.genre,
             secondaryGenre: game.secondaryGenre, price: game.price, status: game.status,
             studio: game.studio, wishlists: game.wishlists,
+            daysUntilRelease: bindingValue(game, 'daysUntilRelease', now, resolvedDateRange.relativeDateRange?.weekStartsOn ?? 'monday'),
+            releaseWeek: bindingValue(game, 'releaseWeek', now, resolvedDateRange.relativeDateRange?.weekStartsOn ?? 'monday'),
+            releaseMonth: bindingValue(game, 'releaseMonth', now, resolvedDateRange.relativeDateRange?.weekStartsOn ?? 'monday'),
+            releaseWeekday: bindingValue(game, 'releaseWeekday', now, resolvedDateRange.relativeDateRange?.weekStartsOn ?? 'monday'),
           }));
           return {
             content: [{ type: 'text', text: `Found ${matches.length.toLocaleString()} synthetic releases; returning ${rows.length}.` }],
-            structuredContent: { total: matches.length, returned: rows.length, synthetic: true, releases: rows },
+            structuredContent: { total: matches.length, returned: rows.length, synthetic: true, resolvedDateRange, releases: rows },
           };
         },
       },
@@ -331,6 +437,7 @@ export default function Home() {
             groupBy: { type: 'string', enum: ['genre', 'timeline', 'price'], default: 'genre' },
             query: { type: 'string' }, genre: { type: 'string', enum: [...GENRES] },
             startDate: { type: 'string' }, endDate: { type: 'string' },
+            relativeDateRange: RELATIVE_DATE_RANGE_SCHEMA,
           },
         },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
@@ -387,14 +494,15 @@ export default function Home() {
                 genre: { type: 'string', enum: ['All genres', ...GENRES] },
                 startDate: { type: 'string', description: 'Inclusive ISO date, YYYY-MM-DD.' },
                 endDate: { type: 'string', description: 'Inclusive ISO date, YYYY-MM-DD.' },
+                relativeDateRange: RELATIVE_DATE_RANGE_SCHEMA,
                 limit: { type: 'integer', minimum: 1, maximum: 2000, default: 2000 },
-                xField: { type: 'string', enum: RELEASE_FIELDS },
-                yField: { type: 'string', enum: RELEASE_FIELDS },
-                labelsField: { type: 'string', enum: RELEASE_FIELDS },
-                valuesField: { type: 'string', enum: RELEASE_FIELDS },
-                textField: { type: 'string', enum: RELEASE_FIELDS },
-                groupByField: { type: 'string', enum: RELEASE_FIELDS },
-                hoverFields: { type: 'array', maxItems: 8, items: { type: 'string', enum: RELEASE_FIELDS } },
+                xField: { type: 'string', enum: BINDING_FIELDS },
+                yField: { type: 'string', enum: BINDING_FIELDS },
+                labelsField: { type: 'string', enum: BINDING_FIELDS },
+                valuesField: { type: 'string', enum: BINDING_FIELDS },
+                textField: { type: 'string', enum: BINDING_FIELDS },
+                groupByField: { type: 'string', enum: BINDING_FIELDS },
+                hoverFields: { type: 'array', maxItems: 8, items: { type: 'string', enum: BINDING_FIELDS } },
               },
               required: ['source'],
             },
@@ -420,6 +528,7 @@ export default function Home() {
             type: { type: 'string', enum: ['genre', 'timeline', 'price'], description: 'Chart grouping to render.' },
             query: { type: 'string' }, genre: { type: 'string', enum: [...GENRES] },
             startDate: { type: 'string' }, endDate: { type: 'string' },
+            relativeDateRange: RELATIVE_DATE_RANGE_SCHEMA,
           }, required: ['type'],
         },
         annotations: { readOnlyHint: false, untrustedContentHint: false },
@@ -538,7 +647,7 @@ export default function Home() {
                   <span className="saved-report-copy">
                     <strong>{report.figure.title}</strong>
                     <small>{savedAtLabel(report.savedAt)} · {report.figure.pointCount.toLocaleString()} points</small>
-                    <em>{report.binding ? 'Live · release_calendar' : 'Snapshot · Plotly spec'}</em>
+                    <em>{bindingLabel(report.binding)}</em>
                   </span>
                 </button>
                 <button type="button" className="saved-report-delete" aria-label={'Delete ' + report.figure.title} onClick={() => deleteSavedReport(report.id)}>×</button>

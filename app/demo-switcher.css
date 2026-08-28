@@ -25,6 +25,31 @@
   box-shadow: 0 9px 28px rgba(35, 55, 68, .08);
 }
 
+.builder-demo-host .demo-switcher {
+  position: relative;
+  padding: 7px 12px 0;
+  background: #e9eef1;
+  backdrop-filter: none;
+}
+.builder-demo-host .demo-switcher-inner {
+  width: 100%;
+  min-height: 44px;
+  padding: 4px;
+  grid-template-columns: 132px minmax(0, 1fr);
+  border-radius: 11px;
+  box-shadow: 0 5px 16px rgba(35, 55, 68, .06);
+}
+.builder-demo-host .demo-switcher-brand { padding: 5px 10px; }
+.builder-demo-host .demo-switcher-brand span { font-size: 12px; }
+.builder-demo-host .demo-switcher-brand small { margin-top: 3px; font-size: 7px; }
+.builder-demo-host .demo-switcher-options { display: flex; justify-content: flex-end; }
+.builder-demo-host .demo-switcher-options a {
+  max-width: 210px;
+  padding: 6px 10px;
+}
+.builder-demo-host .demo-name small { display: none; }
+.builder-demo-host > .site-shell { padding-top: 10px; }
+
 .demo-switcher-brand {
   padding: 11px 14px;
   display: flex;
@@ -67,6 +92,10 @@
   .demo-switcher-options a { padding: 9px; gap: 7px; }
   .demo-name small { display: none; }
   .demo-host > .site-shell { padding-top: 14px; }
+  .builder-demo-host .demo-switcher { padding: 6px 8px 0; }
+  .builder-demo-host .demo-switcher-inner { min-height: 42px; grid-template-columns: 1fr; }
+  .builder-demo-host .demo-switcher-options a { max-width: none; flex: 1; }
+  .builder-demo-host > .site-shell { padding-top: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

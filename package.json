@@ -12,6 +12,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
+    "arquero": "^8.0.3",
     "next": "16.2.6",
     "plotly.js-dist-min": "^4.0.0",
     "react": "19.2.6",

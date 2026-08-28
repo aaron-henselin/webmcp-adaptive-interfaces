@@ -184,7 +184,6 @@ export default function WorkspacePage() {
   const [sortKey, setSortKey] = useState<SortKey>("ownersMax");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(0);
-  const [webMcpStatus, setWebMcpStatus] = useState<"checking" | "connected" | "preview">("checking");
   const [visualization, setVisualization] = useState<Visualization | null>(null);
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({});
@@ -292,7 +291,7 @@ export default function WorkspacePage() {
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
   const renderChart = (type: ChartType) => { if (!catalog) return; const titles = { owners: "Estimated ownership", reviews: "Review sentiment", price: "Price bands" } as const; setVisualization({ type, title: titles[type], subtitle: `Database summary for ${catalog.query.total.toLocaleString()} matching games`, items: catalog.distributions[type] }); window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); };
 
-  return <main className="site-shell builder-site-shell"><section className="release-desk builder-desk" aria-labelledby="page-title"><header className="desk-header builder-desk-header"><div><p className="eyebrow"><span /> Page builder</p><h1 id="page-title">Steam Desk</h1><p className="dek">Shape the page. Everything else stays out of the way.</p></div><div className="header-meta"><div className={`agent-state state-${webMcpStatus}`}><span />{webMcpStatus === "connected" ? "WebMCP connected" : webMcpStatus === "preview" ? "WebMCP preview" : "Checking WebMCP"}</div><div className="catalog-status"><strong>{catalog ? catalog.meta.recordCount.toLocaleString() : "—"}</strong><span>{catalog ? "games available" : catalogError || "loading database"}</span></div></div></header>
+  return <main className="site-shell builder-site-shell"><section className="release-desk builder-desk" aria-label="Steam Desk page builder">
     <section className="page-workspace" ref={workspaceSectionRef} aria-labelledby="workspace-title">
       <header className="page-workspace-header">
         <div>

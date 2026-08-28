@@ -22,19 +22,6 @@
   box-shadow: 0 18px 48px rgba(35, 55, 68, .1);
 }
 
-.builder-desk-header {
-  min-height: 72px;
-  padding: 12px 20px;
-  align-items: center;
-}
-.builder-desk-header .eyebrow { margin-bottom: 6px; }
-.builder-desk-header h1 { font-size: 25px; letter-spacing: -.045em; }
-.builder-desk-header .dek { margin-top: 5px; font-size: 10px; }
-.builder-desk-header .header-meta { align-items: center; }
-.builder-desk-header .catalog-status { min-width: 116px; padding-left: 14px; }
-.builder-desk-header .catalog-status strong { font-size: 16px; }
-.builder-desk-header .catalog-status span { margin-top: 5px; font-size: 9px; }
-
 .builder-desk > .page-workspace {
   margin: 0;
   border: 0;
@@ -52,7 +39,7 @@
 .builder-desk .page-workspace-header > div > p:last-child { margin-top: 4px; }
 
 .builder-desk .page-canvas {
-  min-height: calc(100vh - 278px);
+  min-height: calc(100vh - 206px);
   padding: 48px clamp(16px, 2.4vw, 34px) clamp(18px, 2.4vw, 34px);
   gap: 16px;
   background-color: #e5ebee;
@@ -380,15 +367,10 @@
   .tabs-header [role="tablist"] { max-width: 100%; overflow-x: auto; }
   .page-workspace-footer { padding-block: 9px; align-items: flex-start; flex-direction: column; }
   .builder-site-shell { padding: 8px; }
-  .builder-desk-header { min-height: 60px; padding: 10px 14px; }
-  .builder-desk-header .dek,
-  .builder-desk-header .agent-state,
-  .builder-desk-header .catalog-status span { display: none; }
-  .builder-desk-header .catalog-status { min-width: 0; padding-left: 10px; }
   .builder-desk > .page-workspace { margin-inline: 0; }
   .builder-desk .page-workspace-header { padding: 10px 14px; }
   .builder-desk .page-workspace-header > div > p:last-child { display: none; }
-  .builder-desk .page-canvas { min-height: calc(100vh - 252px); }
+  .builder-desk .page-canvas { min-height: calc(100vh - 192px); }
   .builder-desk .page-workspace-footer { padding: 8px 12px; flex-direction: row; }
   .builder-desk .page-workspace-footer span:nth-child(2) { display: none; }
   .builder-resource-panel { margin-inline: 10px; }

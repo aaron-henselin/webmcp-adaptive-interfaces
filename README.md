@@ -29,11 +29,12 @@ On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the 
 
 ## Site tools
 
-Steam Desk registers four WebMCP tools:
+Steam Desk exposes two focused demos: the root route is a catalog grid with a saved-report library and one active report surface; `/builder` is the composable local page canvas.
+
+The report-library demo registers three WebMCP tools. The builder also registers `compose_page`, which adds HTML widgets or tabs, selects/configures/removes blocks, changes widths, and moves blocks semantically.
 
 - `describe_steam_catalog` returns database field metadata and the current page outline.
 - `create_report` executes a bounded database report and places it inline on the page.
-- `compose_page` adds HTML widgets or tabs, selects/configures/removes blocks, changes widths, and moves blocks semantically.
 - `render_report` recreates an inline report as Markdown or a PNG.
 
 Genre, tag, category, developer, publisher, and language reports use the analytics `explode` operation before grouping. Weighted tag reports can also use `tagWeight`.

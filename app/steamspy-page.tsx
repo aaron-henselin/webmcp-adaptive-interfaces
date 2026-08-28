@@ -48,7 +48,8 @@ type OpenReport = { report: SavedReport; rows: Record<string, unknown>[]; figure
 
 const PAGE_SIZE = 12;
 const MAX_SAVED_REPORTS = 8;
-const MAX_RETURNED_REPORT_ROWS = 250;
+const MAX_CHAT_REPORT_ROWS = 20;
+const MAX_CHAT_REPORT_COLUMNS = 8;
 const SAVED_REPORTS_KEY = "steam-desk:saved-reports:v4";
 const LEGACY_SAVED_REPORTS_KEY = "steam-desk:saved-reports:v3";
 const PLOTLY_TRACE_SCHEMA = {
@@ -310,6 +311,74 @@ function reportModeLabel(mode: ReportMode) {
   return mode.charAt(0).toUpperCase() + mode.slice(1);
 }
 
+function escapeMarkdown(value: unknown) {
+  return String(value ?? "—")
+    .replace(/\\/g, "\\\\")
+    .replace(/\r?\n/g, " ")
+    .replace(/([\`*_\[\]<>|])/g, "\\$1");
+}
+
+function inferredValueFormat(field: string): ValueFormat {
+  if (field === "priceCents" || field === "initialPriceCents") return "currencyCents";
+  if (field === "positiveRatio") return "percent";
+  if (["averageForever", "average2Weeks", "medianForever", "median2Weeks"].includes(field)) return "minutes";
+  return "number";
+}
+
+function chatReportColumns(report: SavedReport, rows: Record<string, unknown>[]): TableColumn[] {
+  if (report.presentation.mode === "table") return report.presentation.table.columns.slice(0, MAX_CHAT_REPORT_COLUMNS);
+  const encoding = report.binding.encoding;
+  const fields = [encoding.labels, encoding.x, encoding.values, encoding.y, encoding.series, encoding.text, ...encoding.hover]
+    .filter((field): field is string => Boolean(field));
+  const uniqueFields = Array.from(new Set(fields.length ? fields : Object.keys(rows[0] ?? {}))).slice(0, MAX_CHAT_REPORT_COLUMNS);
+  return uniqueFields.map((field) => ({ field, label: field, format: inferredValueFormat(field) }));
+}
+
+function markdownTable(columns: TableColumn[], rows: Record<string, unknown>[]) {
+  if (!columns.length || !rows.length) return "_No matching rows were found._";
+  const header = `| ${columns.map((column) => escapeMarkdown(column.label)).join(" | ")} |`;
+  const divider = `| ${columns.map(() => "---").join(" | ")} |`;
+  const body = rows.slice(0, MAX_CHAT_REPORT_ROWS).map((row) => (
+    `| ${columns.map((column) => escapeMarkdown(formatReportValue(row[column.field], column.format))).join(" | ")} |`
+  ));
+  const remainder = rows.length - Math.min(rows.length, MAX_CHAT_REPORT_ROWS);
+  return [header, divider, ...body, ...(remainder > 0 ? [`_${remainder.toLocaleString()} additional rows are available in Steam Desk._`] : [])].join("\n");
+}
+
+async function runSavedReport(report: SavedReport): Promise<OpenReport> {
+  if (report.presentation.mode === "chart" || report.presentation.mode === "mixed") {
+    const rendered = await renderAnalyticsReport(report.presentation.figure, report.binding);
+    return { report, rows: rendered.rows, figure: normalizePlotlyFigure(rendered.figure) };
+  }
+  return { report, rows: await runAnalyticsBinding(report.binding) };
+}
+
+function renderReportForChat(opened: OpenReport) {
+  const { report, rows, figure } = opened;
+  const presentation = report.presentation;
+  const sections = [
+    `## ${escapeMarkdown(report.title)}`,
+    report.description ? escapeMarkdown(report.description) : "",
+    `_${reportModeLabel(presentation.mode)} report · ${rows.length.toLocaleString()} ${rows.length === 1 ? "row" : "rows"}_`,
+  ].filter(Boolean);
+
+  if (presentation.mode === "metric" || presentation.mode === "mixed") {
+    const value = formatReportValue(rows[0]?.[presentation.metric.valueField], presentation.metric.format);
+    sections.push(`**${escapeMarkdown(presentation.metric.label)}:** ${escapeMarkdown(value)}`);
+    if (presentation.metric.context) sections.push(escapeMarkdown(presentation.metric.context));
+  }
+  if (presentation.mode === "narrative") sections.push(escapeMarkdown(presentation.narrative.body));
+  if (presentation.mode === "chart" || presentation.mode === "mixed") {
+    const traceCount = figure?.traceCount ?? 0;
+    const pointCount = figure?.pointCount ?? 0;
+    sections.push(`**Supporting chart:** ${traceCount.toLocaleString()} series · ${pointCount.toLocaleString()} ${pointCount === 1 ? "point" : "points"}`);
+  }
+  if (presentation.mode === "table" || presentation.mode === "chart" || presentation.mode === "mixed") {
+    sections.push(markdownTable(chatReportColumns(report, rows), rows));
+  }
+  return sections.join("\n\n");
+}
+
 function BarChart({ visualization }: { visualization: Visualization }) {
   const max = Math.max(...visualization.items.map((item) => item.value), 1);
   return (
@@ -373,6 +442,7 @@ export default function SteamSpyPage() {
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [savedReportsReady, setSavedReportsReady] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
+  const savedReportsRef = useRef<SavedReport[]>([]);
   const visualizationRef = useRef<HTMLElement>(null);
   const reportRef = useRef<HTMLElement>(null);
   const copiedPromptTimerRef = useRef<number | null>(null);
@@ -400,6 +470,7 @@ export default function SteamSpyPage() {
                 return [];
               }
             }).slice(0, MAX_SAVED_REPORTS);
+            savedReportsRef.current = restored;
             setSavedReports(restored);
           }
         }
@@ -414,6 +485,7 @@ export default function SteamSpyPage() {
 
   useEffect(() => {
     if (!savedReportsReady) return;
+    savedReportsRef.current = savedReports;
     try {
       window.localStorage.setItem(SAVED_REPORTS_KEY, JSON.stringify(savedReports));
     } catch {
@@ -473,7 +545,9 @@ export default function SteamSpyPage() {
         presentation,
         binding,
       };
-      setSavedReports((current) => [report, ...current].slice(0, MAX_SAVED_REPORTS));
+      const nextReports = [report, ...savedReportsRef.current].slice(0, MAX_SAVED_REPORTS);
+      savedReportsRef.current = nextReports;
+      setSavedReports(nextReports);
       if (openInBrowser) {
         setOpenReport({ report, rows, figure });
         window.setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
@@ -513,7 +587,7 @@ export default function SteamSpyPage() {
       },
       {
         name: "create_report",
-        description: "Create, execute, and save a Steam Desk report from the static SteamSpy snapshot. Choose metric for a direct answer, table for rows, chart for visual patterns, narrative for a written finding, or mixed for a metric with a supporting chart. Call describe_steamspy_snapshot first when field meanings or supported operations are unclear. Reopening any report reruns its data definition.",
+        description: "Create, execute, and save a Steam Desk report from the static SteamSpy snapshot. Choose metric for a direct answer, table for rows, chart for visual patterns, narrative for a written finding, or mixed for a metric with a supporting chart. Call describe_steamspy_snapshot first when field meanings or supported operations are unclear. This tool returns a creation receipt, not report data. Call render_report with the returned reportId when the report should be presented in chat.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -530,43 +604,48 @@ export default function SteamSpyPage() {
         execute: async (input: Record<string, unknown>) => {
           const completed = await createReport(input);
           const report = completed.report;
-          const returnedRows = completed.rows.slice(0, MAX_RETURNED_REPORT_ROWS);
-          const columns = Array.from(new Set(completed.rows.flatMap((row) => Object.keys(row))));
-          const presentation = report.presentation;
-          const metric = presentation.mode === "metric" || presentation.mode === "mixed"
-            ? {
-                label: presentation.metric.label,
-                valueField: presentation.metric.valueField,
-                value: completed.rows[0]?.[presentation.metric.valueField] ?? null,
-                formattedValue: formatReportValue(completed.rows[0]?.[presentation.metric.valueField], presentation.metric.format),
-                format: presentation.metric.format,
-                context: presentation.metric.context,
-              }
-            : undefined;
-          const visualization = completed.figure
-            ? { renderer: "plotly", figure: { data: completed.figure.data, layout: completed.figure.layout }, traceCount: completed.figure.traceCount, pointCount: completed.figure.pointCount }
-            : undefined;
           return {
-            content: [{ type: "text", text: `Created and saved ${reportModeLabel(presentation.mode).toLocaleLowerCase()} report “${report.title}”. The Steam Desk panel was ${completed.openInBrowser ? "opened" : "left closed"}.` }],
+            content: [{ type: "text", text: `Created and saved ${reportModeLabel(report.presentation.mode).toLocaleLowerCase()} report “${report.title}” with ID ${report.id}. The Steam Desk panel was ${completed.openInBrowser ? "opened" : "left closed"}. Use render_report with this report ID to present it in chat.` }],
             structuredContent: {
+              schemaVersion: "steam-desk.report-receipt/v1",
               created: true,
               saved: true,
-              report: {
-                schemaVersion: "steam-desk.report/v3",
-                id: report.id,
-                title: report.title,
-                description: report.description,
-                createdAt: report.savedAt,
-                presentation: {
-                  mode: presentation.mode,
-                  metric,
-                  table: presentation.mode === "table" ? presentation.table : undefined,
-                  narrative: presentation.mode === "narrative" ? presentation.narrative : undefined,
-                  visualization,
-                },
-                data: { definition: report.binding, result: { rowCount: completed.rows.length, returnedRowCount: returnedRows.length, truncated: returnedRows.length < completed.rows.length, columns, rows: returnedRows } },
-              },
+              reportId: report.id,
+              title: report.title,
+              mode: report.presentation.mode,
               browser: { saved: true, opened: completed.openInBrowser },
+            },
+          };
+        },
+      },
+      {
+        name: "render_report",
+        description: "Render a saved Steam Desk report as chat-ready Markdown. Use the reportId returned by create_report. This read-only tool reloads the saved definition and reruns its analytics without changing the report or opening the browser panel.",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            reportId: { type: "string", minLength: 1, maxLength: 128, description: "The saved report ID returned by create_report." },
+          },
+          required: ["reportId"],
+        },
+        annotations: { readOnlyHint: true, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          const reportId = typeof input.reportId === "string" ? input.reportId.trim() : "";
+          if (!reportId) throw new Error("A report ID is required.");
+          const report = savedReportsRef.current.find((item) => item.id === reportId);
+          if (!report) throw new Error(`No saved report was found with ID “${reportId}”.`);
+          const opened = await runSavedReport(report);
+          return {
+            content: [{ type: "text", text: renderReportForChat(opened) }],
+            structuredContent: {
+              schemaVersion: "steam-desk.report-render/v1",
+              rendered: true,
+              reportId: report.id,
+              title: report.title,
+              mode: report.presentation.mode,
+              rowCount: opened.rows.length,
+              truncated: opened.rows.length > MAX_CHAT_REPORT_ROWS,
             },
           };
         },
@@ -593,21 +672,14 @@ export default function SteamSpyPage() {
   }
 
   async function openSavedReport(report: SavedReport) {
-    let rows: Record<string, unknown>[];
-    let figure: PlotlyFigure | undefined;
-    if (report.presentation.mode === "chart" || report.presentation.mode === "mixed") {
-      const rendered = await renderAnalyticsReport(report.presentation.figure, report.binding);
-      rows = rendered.rows;
-      figure = normalizePlotlyFigure(rendered.figure);
-    } else {
-      rows = await runAnalyticsBinding(report.binding);
-    }
-    setOpenReport({ report, rows, figure });
+    setOpenReport(await runSavedReport(report));
     window.setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
   }
 
   function deleteSavedReport(id: string) {
-    setSavedReports((current) => current.filter((report) => report.id !== id));
+    const nextReports = savedReportsRef.current.filter((report) => report.id !== id);
+    savedReportsRef.current = nextReports;
+    setSavedReports(nextReports);
     if (openReport?.report.id === id) setOpenReport(null);
   }
 

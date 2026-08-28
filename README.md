@@ -29,11 +29,12 @@ On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the 
 
 ## Site tools
 
-Steam Desk registers three WebMCP tools:
+Steam Desk registers four WebMCP tools:
 
-- `describe_steam_catalog` returns database field and analytics metadata.
-- `create_report` executes and saves a bounded database report.
-- `render_report` recreates a saved report as Markdown or a PNG.
+- `describe_steam_catalog` returns database field metadata and the current page outline.
+- `create_report` executes a bounded database report and places it inline on the page.
+- `compose_page` adds HTML widgets or tabs, selects/configures/removes blocks, changes widths, and moves blocks semantically.
+- `render_report` recreates an inline report as Markdown or a PNG.
 
 Genre, tag, category, developer, publisher, and language reports use the analytics `explode` operation before grouping. Weighted tag reports can also use `tagWeight`.
 
@@ -47,4 +48,4 @@ The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`.
 
 - Local environment files, D1 state, generated imports, dependencies, and raw source data are ignored.
 - `.openai/hosting.json` declares the Sites-managed D1 binding.
-- Saved report definitions remain device-local and rerun against D1 when opened.
+- The versioned page document is stored in browser local storage. Reports rerun against D1 inline; HTML widgets support a small allowlist of safe date, page, and catalog bindings.

@@ -1,1 +1,1 @@
-export { default } from "./catalog-page";
+export { default } from "./workspace-page";

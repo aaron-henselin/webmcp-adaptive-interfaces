@@ -10,6 +10,7 @@ import {
   filterReleaseGames,
   normalizeAnalyticsBinding,
   regenerateAnalyticsFigure,
+  renderAnalyticsReport,
   releaseAnalyticsRow,
   resolveDateRange,
 } from './analytics-binding';
@@ -23,6 +24,7 @@ type SavedReport = { id: string; savedAt: string; figure: PlotlyFigure; binding:
 
 const PAGE_SIZE = 12;
 const MAX_SAVED_REPORTS = 8;
+const MAX_RETURNED_REPORT_ROWS = 250;
 const SAVED_REPORTS_KEY = 'steam-desk:saved-reports:v2';
 const RELATIVE_DATE_RANGE_SCHEMA = {
   type: 'object',
@@ -266,7 +268,9 @@ export default function Home() {
         data: reportVisualization.traces,
         layout: reportVisualization.layout,
       });
-      const next = normalizePlotlyFigure(await regenerateAnalyticsFigure(template, binding));
+      const rendered = await renderAnalyticsReport(template, binding);
+      const next = normalizePlotlyFigure(rendered.figure);
+      const openInBrowser = input.openInBrowser !== false;
       const report: SavedReport = {
         id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'report-' + Date.now() + '-' + Math.random().toString(36).slice(2),
         savedAt: new Date().toISOString(),
@@ -274,10 +278,12 @@ export default function Home() {
         binding,
       };
       setSavedReports((current) => [report, ...current].slice(0, MAX_SAVED_REPORTS));
-      setActiveReportId(report.id);
-      setCustomVisualization(next);
-      window.setTimeout(() => customVisualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
-      return report;
+      if (openInBrowser) {
+        setActiveReportId(report.id);
+        setCustomVisualization(next);
+        window.setTimeout(() => customVisualizationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+      }
+      return { report, rows: rendered.rows, openInBrowser };
     };
 
     const tools = [
@@ -329,7 +335,7 @@ export default function Home() {
       },
       {
         name: 'create_report',
-        description: 'Create and save a Steam Desk report. Every report must include two explicit parts: data defines the release source, filters, and calculations; visualization defines the corresponding Plotly presentation and field encodings. Reopening the report reruns its data definition before rendering.',
+        description: 'Create and save a Steam Desk report. Every report has two explicit parts: data defines the release source, filters, calculations, and resolved rows; visualization contains the complete normalized Plotly figure. The complete portable report is returned to the initiating agent for presentation in chat, whether or not its browser panel is opened. Reopening a saved report reruns its data definition before rendering.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -338,16 +344,50 @@ export default function Home() {
             description: { type: 'string', maxLength: 220, description: 'The decision or question this report addresses.' },
             data: REPORT_DATA_SCHEMA,
             visualization: REPORT_VISUALIZATION_SCHEMA,
+            openInBrowser: { type: 'boolean', default: true, description: 'Open and scroll to the report in Steam Desk. Set false to save it in the background while still returning the complete report to the initiating agent.' },
           },
           required: ['title', 'data', 'visualization'],
         },
         annotations: { readOnlyHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
-          const report = await createReport(input);
+          const completed = await createReport(input);
+          const report = completed.report;
           const figure = report.figure;
+          const returnedRows = completed.rows.slice(0, MAX_RETURNED_REPORT_ROWS);
+          const columns = Array.from(new Set(completed.rows.flatMap((row) => Object.keys(row))));
           return {
-            content: [{ type: 'text', text: `Created and saved report “${figure.title}” from its data definition and Plotly visualization.` }],
-            structuredContent: { created: true, saved: true, reportId: report.id, data: report.binding, visualization: { renderer: 'plotly', title: figure.title, traceCount: figure.traceCount, pointCount: figure.pointCount } },
+            content: [{
+              type: 'text',
+              text: `Created and saved report “${figure.title}”. A complete portable report is attached: present visualization.figure as Plotly in chat. The Steam Desk browser panel was ${completed.openInBrowser ? 'opened' : 'left closed'}.`,
+            }],
+            structuredContent: {
+              created: true,
+              saved: true,
+              report: {
+                schemaVersion: 'steam-desk.report/v1',
+                id: report.id,
+                title: figure.title,
+                description: figure.description,
+                createdAt: report.savedAt,
+                data: {
+                  definition: report.binding,
+                  result: {
+                    rowCount: completed.rows.length,
+                    returnedRowCount: returnedRows.length,
+                    truncated: returnedRows.length < completed.rows.length,
+                    columns,
+                    rows: returnedRows,
+                  },
+                },
+                visualization: {
+                  renderer: 'plotly',
+                  figure: { data: figure.data, layout: figure.layout },
+                  traceCount: figure.traceCount,
+                  pointCount: figure.pointCount,
+                },
+              },
+              browser: { saved: true, opened: completed.openInBrowser },
+            },
           };
         },
       },

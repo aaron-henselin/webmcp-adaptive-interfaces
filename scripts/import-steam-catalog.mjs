@@ -30,10 +30,11 @@ const number = (value) => {
 };
 
 const integer = (value) => Math.max(0, Math.round(number(value)));
+const label = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
 function strings(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((item) => String(item ?? "").trim()).filter(Boolean))];
+  return [...new Set(value.map(label).filter(Boolean))];
 }
 
 function ownerRange(value) {
@@ -56,7 +57,7 @@ function releaseDate(value) {
 function tagEntries(value) {
   if (!value || Array.isArray(value) || typeof value !== "object") return [];
   return Object.entries(value)
-    .map(([name, weight]) => [String(name).trim(), integer(weight)])
+    .map(([name, weight]) => [label(name), integer(weight)])
     .filter(([name]) => Boolean(name));
 }
 

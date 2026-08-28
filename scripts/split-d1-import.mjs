@@ -7,7 +7,7 @@ import process from "node:process";
 
 const input = path.resolve(process.argv[2] ?? "work/steam-catalog/import.sql");
 const outputDirectory = path.resolve(process.argv[3] ?? "work/steam-catalog/chunks");
-const maximumBytes = Number.parseInt(process.env.D1_IMPORT_CHUNK_BYTES ?? "8000000", 10);
+const maximumBytes = Number.parseInt(process.env.D1_IMPORT_CHUNK_BYTES ?? "500000", 10);
 
 if (!Number.isInteger(maximumBytes) || maximumBytes < 100_000) throw new Error("D1_IMPORT_CHUNK_BYTES must be at least 100000.");
 await rm(outputDirectory, { recursive: true, force: true });

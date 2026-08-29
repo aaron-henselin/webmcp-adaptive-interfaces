@@ -42,7 +42,7 @@ const ownerBandLabels = new Map(OWNER_BANDS.map((band) => {
 const SAMPLE_PROMPTS = [
   { mode: "Briefing", prompt: "Give me a welcoming daily briefing with customer activity and one clear next step for my company." },
   { mode: "Engagement", prompt: "Show me four key metrics, an active-user trend, a conversion funnel, and device distribution using the page filters." },
-  { mode: "Catalog", prompt: "Show me the median price of games and explain what I should investigate next." },
+  { mode: "Catalog", prompt: "Exclude free titles, show me the median price of paid games, and explain what I should investigate next." },
   { mode: "Organize", prompt: "Organize a company-aware executive overview with customer activity first and deeper product analysis in tabs." },
 ] as const;
 

@@ -137,7 +137,7 @@ const REPORT_COLUMN_SCHEMA = {
 const REPORT_PRESENTATION_SCHEMA = createReportPresentationSchema({ metric: REPORT_METRIC_SCHEMA, tableColumn: REPORT_COLUMN_SCHEMA, visualization: REPORT_VISUALIZATION_SCHEMA });
 
 const SAMPLE_PROMPTS = [
-  { mode: "Metric", prompt: "What is the median price of games in this snapshot? Save the answer as a report." },
+  { mode: "Metric", prompt: "Exclude free titles. What is the median price of paid games in this snapshot? Save the answer as a report." },
   { mode: "Table", prompt: "Create a report listing the 10 games with the most current players." },
   { mode: "Chart", prompt: "Chart the number of games in each review sentiment band and save it as a report." },
   { mode: "Mixed", prompt: "Show the median review score for free games, with a chart of their review sentiment." },

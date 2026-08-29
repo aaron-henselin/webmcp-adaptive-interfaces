@@ -35,7 +35,7 @@ const ownerBandLabels = new Map(OWNER_BANDS.map((band) => {
 }));
 
 const SAMPLE_PROMPTS = [
-  { mode: "Metric", prompt: "Show me the median price of games in this catalog." },
+  { mode: "Metric", prompt: "Exclude free titles and show me the median price of paid games in this catalog." },
   { mode: "Table", prompt: "Show me the 10 games with the highest peak player count." },
   { mode: "Chart", prompt: "Show me how many games are in each genre." },
   { mode: "Mixed", prompt: "Show the mean review score for RPG-tagged games with a review-band chart." },

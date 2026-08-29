@@ -17,7 +17,7 @@ import { formatCompact, formatOwnerRange, formatPercent, formatPlaytime, formatP
 import { normalizePlotlyFigure, PlotlyCanvas, PLOTLY_TRACE_TYPES, renderPlotlyFigureToPng, type PlotlyFigure } from "./plotly-visualization";
 import { PAGE_COMPOSITION_GUIDE } from "./page-composition-guide";
 import { createReportPresentationSchema, REPORT_MODE_CATALOG, REPORT_PRESENTATION_DESCRIPTION, reportPresentationShapeError } from "./report-presentation-schema";
-import type { WebMcpStatus } from "./demo-switcher";
+import DemoSwitcher, { type WebMcpStatus } from "./demo-switcher";
 import AudienceOnboarding from "./audience-onboarding";
 import { CatalogTableSkeleton, ReportSkeleton } from "./loading-skeletons";
 import "./workspace.css";
@@ -351,7 +351,7 @@ function normalizeOperations(value: unknown): WorkspaceOperation[] {
   });
 }
 
-export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
+export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -605,31 +605,29 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const end = Math.min((visiblePage + 1) * PAGE_SIZE, total);
   const sortIndicator = (key: SortKey) => sortKey === key ? sortDirection === "asc" ? "↑" : "↓" : "↕";
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
-  return <main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk page builder">
+  const pageHeader = !onboardingActive ? <div className={`builder-top-page-header ${editMode ? "edit-mode" : "view-mode"}`} ref={widgetPromptMenuRef}>
+    <div className="builder-top-page-copy">
+      <p className="eyebrow"><span /> Step 3 of 3 · Compose</p>
+      <h2 id="workspace-title">Your page</h2>
+      <p>{"Approved canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + " at " + (workspace?.audience.company?.name ?? "")}</p>
+    </div>
+    <div className="workspace-actions">
+      <span>{workspace?.blocks.length ?? 0} blocks</span>
+      {editMode ? <>
+        <span className="edit-mode-status"><i aria-hidden="true" /> Editing</span>
+        <button type="button" onClick={() => { setShowWidgetPrompts(false); setEditingAudience(true); }}>Edit audience</button>
+        <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
+        <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
+        <button type="button" className={`suggest-report add-widget${showWidgetPrompts ? " open" : ""}`} aria-label={showWidgetPrompts ? "Close widget suggestions" : "Add a widget"} aria-expanded={showWidgetPrompts} aria-controls="widget-prompt-guide" onClick={() => setShowWidgetPrompts((value) => !value)}>
+          Add a widget <span aria-hidden="true">+</span>
+        </button>
+        <button type="button" className="edit-page-toggle is-active" onClick={() => setPageEditing(false)}>Done editing</button>
+      </> : <button type="button" className="edit-page-toggle" onClick={() => setPageEditing(true)}>Edit page</button>}
+    </div>
+    {editMode && showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="widget-prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP knows your confirmed role and company, so ask it to connect market signals to your company’s portfolio, priorities, and next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
+  </div> : null;
+  return <><DemoSwitcher active="builder" status={webMcpStatus}>{pageHeader}</DemoSwitcher><main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk page builder">
     <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""} ${editMode ? "edit-mode" : "view-mode"}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
-      {!onboardingActive ? <header className="page-workspace-header" ref={widgetPromptMenuRef}>
-        <div>
-          <p className="eyebrow"><span /> Step 3 of 3 · Compose</p>
-          <h2 id="workspace-title">Your page</h2>
-          <p>{"Approved canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + " at " + (workspace?.audience.company?.name ?? "")}</p>
-        </div>
-        <div className="workspace-actions">
-          <>
-            <span>{workspace?.blocks.length ?? 0} blocks</span>
-            {editMode ? <>
-              <span className="edit-mode-status"><i aria-hidden="true" /> Editing</span>
-              <button type="button" onClick={() => { setShowWidgetPrompts(false); setEditingAudience(true); }}>Edit audience</button>
-              <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
-              <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
-              <button type="button" className={`suggest-report add-widget${showWidgetPrompts ? " open" : ""}`} aria-label={showWidgetPrompts ? "Close widget suggestions" : "Add a widget"} aria-expanded={showWidgetPrompts} aria-controls="widget-prompt-guide" onClick={() => setShowWidgetPrompts((value) => !value)}>
-                Add a widget <span aria-hidden="true">+</span>
-              </button>
-              <button type="button" className="edit-page-toggle is-active" onClick={() => setPageEditing(false)}>Done editing</button>
-            </> : <button type="button" className="edit-page-toggle" onClick={() => setPageEditing(true)}>Edit page</button>}
-          </>
-        </div>
-        {editMode && showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="widget-prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP knows your confirmed role and company, so ask it to connect market signals to your company’s portfolio, priorities, and next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
-      </header> : null}
       {workspace && onboardingActive ? (
         <AudienceOnboarding
           stage={editingAudience ? "audience_required" : workspace.onboarding.stage}
@@ -656,5 +654,5 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
     {studioActive ? <EngagementResourcePanel filters={engagementFilters} onFiltersChange={setEngagementFilters} /> : null}
     {studioActive ? <details className="builder-resource-panel catalog-resource-panel" aria-busy={catalogLoading}><summary><span><strong>Catalog data</strong><small>{catalogLoading ? "Updating catalog results" : catalog ? `${total.toLocaleString()} matching games available to the page` : catalogError}</small></span><b aria-hidden="true">+</b></summary><div id="catalog-browser" className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label></div><div className="result-strip"><span aria-live="polite">{catalogLoading ? "Updating results..." : catalog ? <><strong>{total.toLocaleString()}</strong> games match</> : catalogError}</span><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setPage(0); }}>Reset filters</button></div>
     <div className="table-wrap"><table><thead><tr><th><button type="button" onClick={() => changeSort("title")}>Game <span>{sortIndicator("title")}</span></button></th><th><button type="button" onClick={() => changeSort("ownersMax")}>Owners <span>{sortIndicator("ownersMax")}</span></button></th><th><button type="button" onClick={() => changeSort("priceCents")}>Price <span>{sortIndicator("priceCents")}</span></button></th><th><button type="button" onClick={() => changeSort("positiveRatio")}>Reviews <span>{sortIndicator("positiveRatio")}</span></button></th><th><button type="button" onClick={() => changeSort("ccu")}>Players <span>{sortIndicator("ccu")}</span></button></th><th>Avg. playtime</th></tr></thead><tbody>{catalogLoading ? <CatalogTableSkeleton /> : games.map((game) => { const accent = Math.abs(game.id) % coverMarks.length; return <tr key={game.id}><td><div className="game-cell"><span className={`cover cover-${accent}`} aria-hidden="true"><i>{coverMarks[accent]}</i><b>{game.title.split(" ").map((word) => word[0]).slice(0, 2).join("")}</b></span><span><strong>{game.title}</strong><small>{game.developer}{game.genres.length ? ` · ${game.genres.slice(0, 2).join(", ")}` : ""}</small></span></div></td><td><span className="genre-pill" title={game.owners}>{formatOwnerRange(game)}</span></td><td className="price-cell">{formatPrice(game.priceCents)}</td><td className="wishlist-cell">{formatPercent(game.positiveRatio)}</td><td className="wishlist-cell">{formatCompact(game.ccu)}</td><td><span className="status">{formatPlaytime(game.averageForever)}</span></td></tr>; })}{!catalogLoading && !games.length && <tr><td colSpan={6}><div className="empty-state"><strong>{catalogError ? "Catalog unavailable" : "No games found"}</strong><span>{catalogError || "Try broader filters."}</span></div></td></tr>}</tbody></table></div><footer className="desk-footer"><span>{catalogLoading ? "Updating catalog results..." : <>Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}</>}</span><div><button type="button" disabled={catalogLoading || visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={catalogLoading || visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer></details> : null}</section>
-    </main>;
+    </main></>;
 }

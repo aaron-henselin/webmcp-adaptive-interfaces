@@ -76,7 +76,7 @@
 
 .builder-desk .page-canvas.is-viewing::before { content: "LIVE PAGE  /  VIEW MODE"; }
 .builder-desk .page-canvas.is-editing::before { content: "EDIT MODE  /  DRAG OR SELECT A WIDGET"; }
-.page-workspace.edit-mode .page-workspace-header { box-shadow: inset 0 -2px 0 rgba(22, 119, 168, .72); }
+.builder-top-page-header.edit-mode { box-shadow: inset 0 -2px 0 rgba(22, 119, 168, .72); }
 .page-canvas.is-viewing .workspace-block { cursor: default; }
 
 .builder-desk .workspace-block {
@@ -155,6 +155,42 @@
 .builder-resource-panel > .prompt-guide { margin: 0 18px 18px; }
 .catalog-resource-panel { margin-bottom: 18px; }
 .catalog-resource-panel > .toolbar { border-top: 0; }
+
+.builder-top-page-header {
+  position: relative;
+  min-height: 58px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+}
+.builder-top-page-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 3px 12px;
+}
+.builder-top-page-copy .eyebrow { grid-column: 1 / -1; margin: 0; }
+.builder-top-page-copy h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: 18px;
+  font-weight: 630;
+  letter-spacing: -.04em;
+  white-space: nowrap;
+}
+.builder-top-page-copy > p:last-child {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .page-workspace-header {
   position: relative;
@@ -643,6 +679,10 @@
   .page-workspace { margin-inline: 14px; }
   .page-workspace-header { align-items: flex-start; flex-direction: column; }
   .workspace-actions { width: 100%; flex-wrap: wrap; }
+  .builder-top-page-header { padding: 8px; align-items: flex-start; flex-direction: column; gap: 8px; }
+  .builder-top-page-copy { width: 100%; }
+  .builder-top-page-copy > p:last-child { display: none; }
+  .builder-top-page-header .workspace-actions { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   .span-half, .span-third, .span-quarter { grid-column: span 12; }
   .workspace-report-header { align-items: flex-start; flex-direction: column; }
   .page-workspace-footer { padding-block: 9px; align-items: flex-start; flex-direction: column; }

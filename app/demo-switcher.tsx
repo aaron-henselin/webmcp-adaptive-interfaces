@@ -1,7 +1,8 @@
 import "./demo-switcher.css";
+import type { ReactNode } from "react";
 
 export type WebMcpStatus = "checking" | "connected" | "preview";
-type DemoSwitcherProps = { active: "reports" | "builder"; status: WebMcpStatus };
+type DemoSwitcherProps = { active: "reports" | "builder"; status: WebMcpStatus; children?: ReactNode };
 
 const demos = [
   {
@@ -20,9 +21,9 @@ const demos = [
   },
 ];
 
-export default function DemoSwitcher({ active, status }: DemoSwitcherProps) {
+export default function DemoSwitcher({ active, status, children }: DemoSwitcherProps) {
   return <nav className="demo-switcher" aria-label="Steam Desk demos">
-    <div className="demo-switcher-inner">
+    <div className={`demo-switcher-inner${children ? " has-detail" : ""}`}>
       <div className="demo-switcher-brand">
         <span>Steam Desk</span>
         <small className={`demo-webmcp-status webmcp-status-${status}`}>{status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "Checking WebMCP"}</small>
@@ -39,6 +40,7 @@ export default function DemoSwitcher({ active, status }: DemoSwitcherProps) {
           <span className="demo-arrow" aria-hidden="true">↗</span>
         </a>)}
       </div>
+      {children ? <div className="demo-switcher-detail">{children}</div> : null}
     </div>
   </nav>;
 }

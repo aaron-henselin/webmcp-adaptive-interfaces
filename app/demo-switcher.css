@@ -41,6 +41,12 @@
   border-radius: 11px;
   box-shadow: 0 5px 16px rgba(35, 55, 68, .06);
 }
+.builder-demo-host .demo-switcher-inner.has-detail { grid-template-rows: auto auto; }
+.builder-demo-host .demo-switcher-detail {
+  min-width: 0;
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--rule);
+}
 .builder-demo-host .demo-switcher-brand { padding: 5px 10px; }
 .builder-demo-host .demo-switcher-brand span { font-size: 12px; }
 .builder-demo-host .demo-switcher-brand small { margin-top: 3px; font-size: 7px; }
@@ -102,6 +108,7 @@
   .demo-host > .site-shell { padding-top: 14px; }
   .builder-demo-host .demo-switcher { padding: 6px 8px 0; }
   .builder-demo-host .demo-switcher-inner { min-height: 42px; grid-template-columns: 1fr; }
+  .builder-demo-host .demo-switcher-inner.has-detail { grid-template-rows: auto auto auto; }
   .builder-demo-host .demo-switcher-options a { max-width: none; flex: 1; }
   .builder-demo-host > .site-shell { padding-top: 8px; }
 }

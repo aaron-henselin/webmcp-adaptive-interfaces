@@ -299,15 +299,6 @@
 .workspace-report-header h3,
 .tabs-header h3 { font-size: 21px; }
 .workspace-report-header > div > p:last-child { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
-.workspace-report-header > span {
-  padding: 6px 8px;
-  border-radius: 999px;
-  color: #537180;
-  background: #edf5f8;
-  font: 600 8px/1 "Cascadia Mono", ui-monospace, monospace;
-  text-transform: uppercase;
-}
-
 .workspace-block .plotly-stage { min-height: 320px; }
 .workspace-block .plotly-canvas { min-height: 300px; }
 .workspace-block .metric-answer { min-height: 230px; padding: 38px; }

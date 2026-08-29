@@ -188,7 +188,7 @@ function ReportWidget({ block, pageFilters }: { block: ReportBlock; pageFilters:
   // The serialized definition and inherited page filters are the report's semantic identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitionKey]);
-  return <><header className="workspace-report-header"><div><h3>{block.title}</h3>{block.description ? <p>{block.description}</p> : null}</div><span>{block.presentation.mode}</span></header>{loading ? <ReportSkeleton /> : error ? <div className="block-status error">{error}</div> : result ? <ReportContent report={block} result={result} /> : null}</>;
+  return <><header className="workspace-report-header"><div><h3>{block.title}</h3>{block.description ? <p>{block.description}</p> : null}</div></header>{loading ? <ReportSkeleton /> : error ? <div className="block-status error">{error}</div> : result ? <ReportContent report={block} result={result} /> : null}</>;
 }
 
 function HtmlWidget({ block, recordCount, firstName, jobRole, company }: { block: HtmlBlock; recordCount: number; firstName: string; jobRole: string; company: string }) {

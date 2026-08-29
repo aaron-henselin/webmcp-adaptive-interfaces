@@ -33,8 +33,14 @@ HTML widgets can use `{{user.company}}` alongside `{{user.firstName}}` and `{{us
 ```html
 <h2>{{time.greeting}}, {{user.firstName}}</h2>
 <p>Your {{today.long}} briefing connects current market signals to your work as {{user.jobRole}} at {{user.company}}.</p>
-<a href="#catalog-browser">Explore the catalog</a>
+<p><strong>Next step:</strong> Ask me to investigate a product or market segment.</p>
 ```
+
+### Widget link policy
+
+HTML widgets are presentation-only. Do not include Markdown links, HTML anchor elements, `href` attributes, linked URLs, or button-like links in widget markup. A URL or fragment identifier may point to a route or element the generated page does not implement, leaving a control that looks actionable but does nothing.
+
+Express calls to action as plain text instead, such as “Next step: Ask me to investigate a product or market segment.” The user can then continue through the agent, which can invoke the appropriate tool.
 
 For reports, use the confirmed company to inform the report question, cohort, title, explanation, and call to action. Do not force a company filter when the broader market is the more useful comparison.
 

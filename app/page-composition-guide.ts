@@ -4,7 +4,7 @@ export const PAGE_COMPOSITION_GUIDE = {
     requiredBeforeCreation: true,
     requiredFields: ["firstName", "jobRole", "company"],
     workflow: ["When the user says 'onboard me' or a similar phrase such as 'set me up' or 'get started,' call onboard_audience with operation start.", "Ask one concise survey for the user's first name, game company, and job role; do not infer missing identity details.", "Submit all three answers through onboard_audience. Let the tool resolve strong company typo matches; ask the user only when it returns an ambiguous shortlist.", "After the audience is saved, propose one useful page purpose, the strongest role-and-company-relevant signals, an ordered section list, and one primary action.", "Wait for the user to approve or revise that proposal, then call request_page_composition with the approved proposal before addHtml, addTabs, or create_report."],
-    roleApplication: ["Prioritize the decisions and metrics that matter to that role.", "Use vocabulary appropriate to the role without stereotyping.", "Choose a CTA that advances the role's likely next task.", "Explain why the first-view content is relevant to the role."],
+    roleApplication: ["Prioritize the decisions and metrics that matter to that role.", "Use vocabulary appropriate to the role without stereotyping.", "State a plain-text next step that advances the role's likely task.", "Explain why the first-view content is relevant to the role."],
     companyApplication: ["Use the confirmed company to frame portfolio-relevant comparisons, opportunities, and risks.", "Prefer useful company context in the welcome, report framing, or CTA instead of repeating the company name in every block.", "When catalog data supports it, compare the company portfolio with an appropriate market cohort and label the comparison clearly.", "Do not imply access to private company data or treat catalog affiliation as proof of the user's identity."],
   },
   decisionOrder: [
@@ -12,7 +12,7 @@ export const PAGE_COMPOSITION_GUIDE = {
     "Propose the user's likely job-to-be-done, single most important action or answer, and the smallest useful page; wait for approval before composition.",
     "Choose the smallest number of blocks that creates a clear reading order.",
     "Select each block's width from its information density and priority; do not ask the user to choose widths.",
-    "For briefings, home pages, and overviews, add a restrained personalized welcome and one clear call to action.",
+    "For briefings, home pages, and overviews, add a restrained personalized welcome and one clear, non-clickable next-step prompt.",
     "Keep the first viewport scannable, then put supporting detail or alternate views in tabs.",
   ],
   widthSelection: {
@@ -34,7 +34,7 @@ export const PAGE_COMPOSITION_GUIDE = {
     },
   },
   compositionPatterns: [
-    { name: "Personal briefing", recipe: "Personalized welcome at half width beside the primary KPI; one full-width chart or table below; one clear CTA." },
+    { name: "Personal briefing", recipe: "Personalized welcome at half width beside the primary KPI; one full-width chart or table below; one clear, non-clickable next-step prompt." },
     { name: "Executive overview", recipe: "Up to three compact third-width KPIs followed by a full-width primary visualization and optional detail tabs." },
     { name: "Engagement overview", recipe: "Four quarter-width KPIs followed by a full-width active-user trend, then two half-width conversion and device views. Use customer_engagement with inheritPageFilters enabled." },
     { name: "Comparison", recipe: "Two half-width peer reports followed by a full-width explanation or detail table." },
@@ -42,9 +42,9 @@ export const PAGE_COMPOSITION_GUIDE = {
   ],
   personalization: {
     useWhen: ["the user asks for a home page, briefing, overview, or recurring workspace", "a greeting helps establish whose page this is and when it was prepared"],
-    guidance: ["Use personalization once near the top, not in every block.", "Name the confirmed company when it makes the insight or next action more specific.", "Pair the greeting with useful role-and-company context, not decoration.", "Include one action-oriented link when there is a logical next step."],
+    guidance: ["Use personalization once near the top, not in every block.", "Name the confirmed company when it makes the insight or next action more specific.", "Pair the greeting with useful role-and-company context, not decoration.", "State a logical next step as plain text only. Never include Markdown links, HTML anchor elements, href attributes, linked URLs, or button-like links in widget markup."],
     bindings: ["time.greeting", "user.firstName", "user.jobRole", "user.company", "today.long", "today.short", "currentYear", "page.title", "catalog.recordCount"],
-    exampleMarkup: "<h2>{{time.greeting}}, {{user.firstName}}</h2><p>Your {{today.long}} catalog briefing connects market signals to your work as {{user.jobRole}} at {{user.company}}.</p><a href=\"#catalog-browser\">Explore the catalog</a>",
+    exampleMarkup: "<h2>{{time.greeting}}, {{user.firstName}}</h2><p>Your {{today.long}} catalog briefing connects market signals to your work as {{user.jobRole}} at {{user.company}}.</p><p><strong>Next step:</strong> Ask me to investigate a product or market segment.</p>",
   },
   tabs: {
     chooseWhen: ["views are alternatives rather than simultaneous comparisons", "secondary detail would otherwise make the page long"],
@@ -57,6 +57,7 @@ export const PAGE_COMPOSITION_GUIDE = {
     "The page has one obvious starting point and one primary next action.",
     "Width reflects content density, not arbitrary symmetry.",
     "Personalization uses company context where it improves relevance and remains restrained.",
+    "Widget markup contains no links, anchor elements, href attributes, linked URLs, or button-like links; any next step is plain text.",
     "Tables and dense charts have enough horizontal room.",
     "Tabs hide only optional or alternate content.",
   ],

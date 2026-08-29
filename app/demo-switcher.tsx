@@ -2,7 +2,11 @@ import "./demo-switcher.css";
 import type { ReactNode } from "react";
 
 export type WebMcpStatus = "checking" | "connected" | "preview";
-type DemoSwitcherProps = { active: "reports" | "builder"; status: WebMcpStatus; children?: ReactNode };
+type DemoSwitcherProps = { active: "reports" | "builder"; children?: ReactNode };
+
+export function webMcpStatusLabel(status: WebMcpStatus) {
+  return status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "WebMCP connecting";
+}
 
 const demos = [
   {
@@ -10,23 +14,22 @@ const demos = [
     href: "/",
     number: "01",
     title: "Data Table Demo",
-    description: "Grid, saved reports, one active result",
+    description: "One component, shaped around you",
   },
   {
     id: "builder" as const,
     href: "/builder",
     number: "02",
     title: "Dashboard Demo",
-    description: "Slots, tabs, widgets, drag-and-drop",
+    description: "Many components, composed around you",
   },
 ];
 
-export default function DemoSwitcher({ active, status, children }: DemoSwitcherProps) {
+export default function DemoSwitcher({ active, children }: DemoSwitcherProps) {
   return <nav className="demo-switcher" aria-label="Steam Desk demos">
     <div className={`demo-switcher-inner${children ? " has-detail" : ""}`}>
       <div className="demo-switcher-brand">
         <span>Steam Desk</span>
-        <small className={`demo-webmcp-status webmcp-status-${status}`}>{status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "Connecting to your browser"}</small>
       </div>
       <div className="demo-switcher-options">
         {demos.map((demo) => <a

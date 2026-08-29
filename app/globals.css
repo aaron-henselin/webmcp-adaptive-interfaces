@@ -75,6 +75,10 @@ tbody tr:hover { background: #f8fbfc; }
 .steam-desk-header .dek { max-width: 680px; color: #c7d5e0; line-height: 1.5; }
 .desk-kicker { margin: 0 0 17px; display: flex; align-items: center; gap: 10px; color: #66c0f4; font: 650 10px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .13em; text-transform: uppercase; }
 .desk-kicker span { width: 20px; height: 2px; background: #66c0f4; box-shadow: 0 0 16px rgba(102,192,244,.72); }
+.desk-kicker.webmcp-status-connected { color: #72d4ac; }
+.desk-kicker.webmcp-status-connected span { background: #72d4ac; box-shadow: 0 0 16px rgba(114,212,172,.72); }
+.desk-kicker.webmcp-status-preview { color: #f0b45f; }
+.desk-kicker.webmcp-status-preview span { background: #f0b45f; box-shadow: 0 0 16px rgba(240,180,95,.68); }
 .steam-desk-header .header-meta { position: relative; align-items: center; gap: 22px; }
 .steam-press-mark { width: 48px; height: 48px; flex: 0 0 auto; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,.24); }
 .steam-desk-header .catalog-status { min-width: 164px; padding-left: 22px; border-left-color: rgba(199,213,224,.3); }

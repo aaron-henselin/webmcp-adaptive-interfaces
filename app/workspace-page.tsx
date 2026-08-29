@@ -351,7 +351,7 @@ function normalizeOperations(value: unknown): WorkspaceOperation[] {
   });
 }
 
-export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
+export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -627,7 +627,7 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
     </div>
     {showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><p className="eyebrow"><span /> Ask naturally</p><h2 id="widget-prompt-guide-title">Helpful sample prompts</h2></div><p>Start with the outcome you need. Steam Desk will choose a fitting widget and use your role and company to make it relevant.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
   </div> : null;
-  return <><DemoSwitcher active="builder" status={webMcpStatus}>{pageHeader}</DemoSwitcher><main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk dashboard demo">
+  return <><DemoSwitcher active="builder">{pageHeader}</DemoSwitcher><main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk dashboard demo">
     <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""} ${editMode ? "edit-mode" : "view-mode"}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
       {workspace && onboardingActive ? (
         <AudienceOnboarding

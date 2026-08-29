@@ -5,7 +5,7 @@ import { CATALOG_ANALYTICS_BINDING_SCHEMA, CATALOG_FIELD_CATALOG, normalizeCatal
 import { executeCatalogReport, loadCatalogPage, type CatalogPage } from "./catalog-data";
 import { bindCatalogRowsToFigure } from "./catalog-visualization";
 import { createReportPresentationSchema, REPORT_MODE_CATALOG, REPORT_PRESENTATION_DESCRIPTION, reportPresentationShapeError } from "./report-presentation-schema";
-import type { WebMcpStatus } from "./demo-switcher";
+import { webMcpStatusLabel, type WebMcpStatus } from "./demo-switcher";
 import { formatCompact, formatOwnerRange, formatPercent, formatPlaytime, formatPrice } from "./steamspy-data";
 import { normalizePlotlyFigure, PlotlyCanvas, PLOTLY_TRACE_TYPES, renderPlotlyFigureToPng, type PlotlyFigure } from "./plotly-visualization";
 import { CatalogTableSkeleton } from "./loading-skeletons";
@@ -127,7 +127,7 @@ function markdownReport(opened: OpenReport) {
   return lines.filter(Boolean).join("\n");
 }
 
-export default function CatalogPage({ onWebMcpStatusChange }: { onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
+export default function CatalogPage({ webMcpStatus, onWebMcpStatusChange }: { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
   const [resolvedCatalogKey, setResolvedCatalogKey] = useState("");
@@ -248,7 +248,7 @@ export default function CatalogPage({ onWebMcpStatusChange }: { onWebMcpStatusCh
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
   return <main className="site-shell">
     <section className="release-desk" aria-labelledby="page-title">
-      <header className="desk-header steam-desk-header"><div className="desk-header-copy"><p className="desk-kicker"><span aria-hidden="true" /> Independent market desk</p><h1 id="page-title">Steam Desk</h1><p className="dek">Explore the Steam ecosystem your way, with reports and market signals shaped around what matters to you.</p></div><div className="header-meta"><img className="steam-press-mark" src="/steam-logo-official.jpg" alt="Steam®" width="300" height="300" /><div className="catalog-status"><strong>{catalog ? catalog.meta.recordCount.toLocaleString() : "—"}<span>games</span></strong></div></div></header>
+      <header className="desk-header steam-desk-header"><div className="desk-header-copy"><p className={`desk-kicker webmcp-status-${webMcpStatus}`}><span aria-hidden="true" /> {webMcpStatusLabel(webMcpStatus)}</p><h1 id="page-title">A Personal Internet</h1><p className="dek">Explore the Steam ecosystem your way, with reports and market signals shaped around what matters to you.</p></div><div className="header-meta"><img className="steam-press-mark" src="/steam-logo-official.jpg" alt="Steam®" width="300" height="300" /><div className="catalog-status"><strong>{catalog ? catalog.meta.recordCount.toLocaleString() : "—"}<span>games</span></strong></div></div></header>
       <div className="catalog-viewbar" ref={suggestionMenuRef}>
         <nav className="catalog-tabs" role="tablist" aria-label="Catalog views">
           <button id="catalog-tab-raw-data" type="button" role="tab" aria-selected={activeCatalogTab === "raw-data"} aria-controls="catalog-panel-raw-data" className={activeCatalogTab === "raw-data" ? "active" : ""} onClick={() => setOpenReport(null)}>

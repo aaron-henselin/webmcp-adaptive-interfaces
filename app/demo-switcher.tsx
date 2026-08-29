@@ -9,14 +9,14 @@ const demos = [
     id: "reports" as const,
     href: "/",
     number: "01",
-    title: "Report library",
+    title: "Data Table Demo",
     description: "Grid, saved reports, one active result",
   },
   {
     id: "builder" as const,
     href: "/builder",
     number: "02",
-    title: "Page builder",
+    title: "Dashboard Demo",
     description: "Slots, tabs, widgets, drag-and-drop",
   },
 ];

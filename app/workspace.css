@@ -16,6 +16,16 @@
   background: #e9eef1;
 }
 
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) {
+  background:
+    radial-gradient(circle at 46% 10%, rgba(64, 169, 218, .24), transparent 34%),
+    linear-gradient(145deg, #15242e, #223947);
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher {
+  background: transparent;
+}
+
 .builder-desk {
   width: 100%;
   border: 0;
@@ -26,20 +36,24 @@
 .builder-demo-host > .builder-site-shell.is-onboarding {
   min-height: calc(100dvh - 51px);
   padding: 0;
-  background: white;
+  background: transparent;
 }
 .builder-desk.onboarding-mode {
   min-height: calc(100dvh - 51px);
   overflow: visible;
   border: 0;
   border-radius: 0;
-  background: white;
+  background: transparent;
   box-shadow: none;
 }
 .builder-desk > .page-workspace.onboarding-workspace {
   min-height: calc(100dvh - 51px);
   overflow: visible;
   border: 0;
+  background: transparent;
+}
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) .audience-onboarding {
+  background: transparent;
 }
 
 .builder-desk > .page-workspace {

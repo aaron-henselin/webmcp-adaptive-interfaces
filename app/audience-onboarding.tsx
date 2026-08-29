@@ -34,7 +34,7 @@ export default function AudienceOnboarding({ stage, audience, canCancel, onCance
   if (stage === "audience_required" && !audienceReady) {
     return <div className="audience-onboarding audience-invitation">
       <section className="audience-invitation-copy" aria-labelledby="audience-brief-title">
-        <h3 id="audience-brief-title">Make Steam Desk yours.</h3>
+        <h3 id="audience-brief-title">Make this site yours.</h3>
         <p>Say <strong>“onboard me”</strong> to get started.</p>
       </section>
     </div>;

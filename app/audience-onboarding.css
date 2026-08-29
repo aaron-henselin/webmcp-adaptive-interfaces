@@ -1,11 +1,64 @@
 .audience-onboarding {
+  position: relative;
+  isolation: isolate;
   min-height: calc(100dvh - 51px);
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(420px, .92fr);
+  overflow: hidden;
   color: #eaf2f5;
   background:
     radial-gradient(circle at 46% 10%, rgba(64, 169, 218, .24), transparent 34%),
+    radial-gradient(circle at 8% 92%, rgba(48, 124, 158, .13), transparent 28%),
     linear-gradient(145deg, #15242e, #223947);
+}
+
+.audience-onboarding::before,
+.audience-onboarding::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.audience-onboarding::before {
+  z-index: -2;
+  top: -42vmax;
+  left: -30vmax;
+  width: 86vmax;
+  height: 86vmax;
+  border-radius: 50%;
+  opacity: .46;
+  background: conic-gradient(
+    from 18deg,
+    transparent 0 24%,
+    rgba(91, 190, 232, .24) 32%,
+    transparent 43% 61%,
+    rgba(104, 214, 194, .12) 69%,
+    transparent 78%
+  );
+  filter: blur(32px);
+  animation: audience-signal-orbit 34s linear infinite;
+}
+
+.audience-onboarding::after {
+  z-index: -1;
+  inset: -12%;
+  opacity: .22;
+  background-image:
+    radial-gradient(circle, rgba(171, 221, 242, .7) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(112, 201, 184, .55) 0 1px, transparent 1.5px);
+  background-position: 0 0, 31px 37px;
+  background-size: 74px 74px, 113px 113px;
+  mask-image: radial-gradient(ellipse at 44% 46%, black 0, rgba(0, 0, 0, .72) 34%, transparent 76%);
+  animation: audience-signal-drift 26s ease-in-out infinite alternate;
+}
+
+@keyframes audience-signal-orbit {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes audience-signal-drift {
+  from { transform: translate3d(-1.2%, -.8%, 0); }
+  to { transform: translate3d(1.2%, .8%, 0); }
 }
 
 .audience-invitation {
@@ -107,4 +160,11 @@
   .audience-survey-preview { grid-template-columns: 1fr; }
   .audience-form-actions { align-items: stretch; flex-direction: column-reverse; }
   .audience-form-actions button, .audience-waiting { justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audience-onboarding::before,
+  .audience-onboarding::after {
+    animation: none;
+  }
 }

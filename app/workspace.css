@@ -18,6 +18,7 @@
 
 .builder-desk {
   width: 100%;
+  border: 0;
   border-radius: 16px;
   box-shadow: 0 18px 48px rgba(35, 55, 68, .1);
 }
@@ -44,7 +45,6 @@
 .builder-desk > .page-workspace {
   margin: 0;
   border: 0;
-  border-bottom: 1px solid #d4dde2;
   border-radius: 0;
   box-shadow: none;
 }
@@ -109,6 +109,7 @@
 .builder-desk .page-workspace-footer {
   min-height: 32px;
   justify-content: flex-end;
+  border-top: 0;
   background: #fbfcfd;
 }
 .builder-desk .page-workspace-footer span:first-child,

@@ -789,7 +789,7 @@ export default function SteamSpyPage() {
             <p className="dek">A searchable market snapshot built from 21 locally cached SteamSpy pages.</p>
           </div>
           <div className="header-meta">
-            <div className={`agent-state state-${webMcpStatus}`}><span />{webMcpStatus === "connected" ? "WebMCP connected" : webMcpStatus === "preview" ? "WebMCP preview" : "Checking WebMCP"}</div>
+            <div className={`agent-state state-${webMcpStatus}`}><span />{webMcpStatus === "connected" ? "WebMCP connected" : webMcpStatus === "preview" ? "WebMCP preview" : "Connecting to your browser"}</div>
             <div className="catalog-status">
               <strong>{snapshot ? games.length.toLocaleString() : "—"}</strong>
               <span>{snapshot ? `games · ${formatSnapshotDate(snapshot.snapshotDate)}` : snapshotError ? "snapshot unavailable" : "loading snapshot"}</span>

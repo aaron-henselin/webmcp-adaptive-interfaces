@@ -26,7 +26,7 @@ export default function DemoSwitcher({ active, status, children }: DemoSwitcherP
     <div className={`demo-switcher-inner${children ? " has-detail" : ""}`}>
       <div className="demo-switcher-brand">
         <span>Steam Desk</span>
-        <small className={`demo-webmcp-status webmcp-status-${status}`}>{status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "Checking WebMCP"}</small>
+        <small className={`demo-webmcp-status webmcp-status-${status}`}>{status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "Connecting to your browser"}</small>
       </div>
       <div className="demo-switcher-options">
         {demos.map((demo) => <a

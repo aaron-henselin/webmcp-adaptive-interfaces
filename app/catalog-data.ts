@@ -48,6 +48,21 @@ export type CatalogPageOptions = {
   pageSize: number;
 };
 
+export type GameCompany = {
+  id: number;
+  name: string;
+  roles: Array<"developer" | "publisher">;
+  gameCount: number;
+};
+
+export async function searchGameCompanies(query: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ query, limit: "8" });
+  const response = await fetch("/api/catalog/companies?" + params, { signal, cache: "no-store" });
+  const value = await response.json() as { candidates?: GameCompany[]; error?: string };
+  if (!response.ok || !Array.isArray(value.candidates)) throw new Error(value.error || "Company search failed with status " + response.status + ".");
+  return value.candidates;
+}
+
 export async function loadCatalogPage(options: CatalogPageOptions, signal?: AbortSignal) {
   const params = new URLSearchParams({
     search: options.search,

@@ -27,6 +27,7 @@ import {
   type SteamSpySnapshot,
 } from "./steamspy-data";
 import { PlotlyCanvas, type PlotlyFigure, PLOTLY_TRACE_TYPES, normalizePlotlyFigure, renderPlotlyFigureToPng } from "./plotly-visualization";
+import { createReportPresentationSchema, REPORT_MODE_CATALOG, reportPresentationShapeError } from "./report-presentation-schema";
 
 type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
 type SortDirection = "asc" | "desc";
@@ -139,19 +140,7 @@ const REPORT_COLUMN_SCHEMA = {
   },
   required: ["field", "label"],
 };
-const REPORT_PRESENTATION_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  description: "How the report should be presented. Use metric for one answer, table for rows, chart for visual patterns, narrative for a concise written finding, or mixed for a headline metric supported by a chart.",
-  properties: {
-    mode: { type: "string", enum: ["metric", "table", "chart", "narrative", "mixed"] },
-    metric: REPORT_METRIC_SCHEMA,
-    table: { type: "object", additionalProperties: false, properties: { columns: { type: "array", minItems: 1, maxItems: 8, items: REPORT_COLUMN_SCHEMA } }, required: ["columns"] },
-    narrative: { type: "object", additionalProperties: false, properties: { body: { type: "string", maxLength: 800 } }, required: ["body"] },
-    visualization: REPORT_VISUALIZATION_SCHEMA,
-  },
-  required: ["mode"],
-};
+const REPORT_PRESENTATION_SCHEMA = createReportPresentationSchema({ metric: REPORT_METRIC_SCHEMA, tableColumn: REPORT_COLUMN_SCHEMA, visualization: REPORT_VISUALIZATION_SCHEMA });
 
 const SAMPLE_PROMPTS = [
   { mode: "Metric", prompt: "What is the median price of games in this snapshot? Save the answer as a report." },
@@ -159,14 +148,6 @@ const SAMPLE_PROMPTS = [
   { mode: "Chart", prompt: "Chart the number of games in each review sentiment band and save it as a report." },
   { mode: "Mixed", prompt: "Show the median review score for free games, with a chart of their review sentiment." },
 ] as const;
-const REPORT_MODE_CATALOG = [
-  { mode: "metric", useWhen: "The result is one headline value.", requires: ["metric"] },
-  { mode: "table", useWhen: "The result is a small set of comparable rows.", requires: ["table"] },
-  { mode: "chart", useWhen: "A pattern, distribution, or relationship is easier to understand visually.", requires: ["visualization"] },
-  { mode: "narrative", useWhen: "The result is best expressed as a concise written finding.", requires: ["narrative"] },
-  { mode: "mixed", useWhen: "A headline value benefits from a supporting chart.", requires: ["metric", "visualization"] },
-] as const;
-
 const coverMarks = ["◜", "◇", "◉", "⌁", "△", "✣", "⊙", "╱"];
 const ownerBandLabels = new Map(
   OWNER_BANDS.map((band) => {
@@ -344,6 +325,11 @@ function createPresentation(input: Record<string, unknown>, title: string, descr
   const legacyVisualization = isRecord(input.visualization) ? input.visualization : null;
   const mode = (supplied?.mode ?? (legacyVisualization ? "chart" : "")) as ReportMode;
   const visualization = supplied && isRecord(supplied.visualization) ? supplied.visualization : legacyVisualization;
+  if (supplied) {
+    const effectivePresentation = visualization && !isRecord(supplied.visualization) ? { ...supplied, visualization } : supplied;
+    const shapeError = reportPresentationShapeError(effectivePresentation);
+    if (shapeError) invalidPresentation(shapeError);
+  }
 
   if (mode === "metric") {
     const metric = normalizeMetricSpec(supplied?.metric);
@@ -686,7 +672,7 @@ export default function SteamSpyPage() {
       },
       {
         name: "create_report",
-        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Executes and saves the complete report, optionally opens it in Steam Desk, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, Quick View, or Saved Reports through the page UI.",
+        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Executes and saves the complete report, optionally opens it in Steam Desk, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, Quick View, or Saved Reports through the page UI.",
         inputSchema: {
           type: "object",
           additionalProperties: false,

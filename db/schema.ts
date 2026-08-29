@@ -42,6 +42,13 @@ export const games = sqliteTable("games", {
 
 export const developers = sqliteTable("developers", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
 export const publishers = sqliteTable("publishers", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
+export const companies = sqliteTable("companies", {
+  id: integer("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  isDeveloper: integer("is_developer", { mode: "boolean" }).notNull(),
+  isPublisher: integer("is_publisher", { mode: "boolean" }).notNull(),
+  gameCount: integer("game_count").notNull(),
+}, (table) => [index("idx_companies_game_count").on(table.gameCount)]);
 export const genres = sqliteTable("genres", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
 export const categories = sqliteTable("categories", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
 export const tags = sqliteTable("tags", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
@@ -53,3 +60,44 @@ export const gameGenres = sqliteTable("game_genres", { appId: integer("app_id").
 export const gameCategories = sqliteTable("game_categories", { appId: integer("app_id").notNull().references(() => games.appId, { onDelete: "cascade" }), categoryId: integer("category_id").notNull().references(() => categories.id, { onDelete: "cascade" }) }, (table) => [primaryKey({ columns: [table.appId, table.categoryId] }), index("idx_game_categories_category").on(table.categoryId, table.appId)]);
 export const gameTags = sqliteTable("game_tags", { appId: integer("app_id").notNull().references(() => games.appId, { onDelete: "cascade" }), tagId: integer("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }), weight: integer("weight").notNull() }, (table) => [primaryKey({ columns: [table.appId, table.tagId] }), index("idx_game_tags_tag").on(table.tagId, table.appId)]);
 export const gameLanguages = sqliteTable("game_languages", { appId: integer("app_id").notNull().references(() => games.appId, { onDelete: "cascade" }), languageId: integer("language_id").notNull().references(() => languages.id, { onDelete: "cascade" }), fullAudio: integer("full_audio", { mode: "boolean" }).notNull() }, (table) => [primaryKey({ columns: [table.appId, table.languageId] }), index("idx_game_languages_language").on(table.languageId, table.appId)]);
+
+export const engagementShops = sqliteTable("engagement_shops", {
+  id: integer("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  region: text("region").notNull(),
+});
+
+export const engagementUsers = sqliteTable("engagement_users", {
+  id: integer("id").primaryKey(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull().unique(),
+  sex: text("sex").notNull(),
+  customerType: text("customer_type").notNull(),
+  city: text("city").notNull(),
+  region: text("region").notNull(),
+  joinedAt: text("joined_at").notNull(),
+  status: text("status").notNull(),
+}, (table) => [
+  index("idx_engagement_users_type").on(table.customerType),
+  index("idx_engagement_users_sex").on(table.sex),
+]);
+
+export const engagementSessions = sqliteTable("engagement_sessions", {
+  id: integer("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => engagementUsers.id, { onDelete: "cascade" }),
+  appId: integer("app_id").notNull().references(() => games.appId, { onDelete: "cascade" }),
+  shopId: integer("shop_id").notNull().references(() => engagementShops.id),
+  startedAt: text("started_at").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  deviceType: text("device_type").notNull(),
+  signedUp: integer("signed_up", { mode: "boolean" }).notNull(),
+  activated: integer("activated", { mode: "boolean" }).notNull(),
+  subscribed: integer("subscribed", { mode: "boolean" }).notNull(),
+}, (table) => [
+  index("idx_engagement_sessions_started").on(table.startedAt),
+  index("idx_engagement_sessions_user_started").on(table.userId, table.startedAt),
+  index("idx_engagement_sessions_shop_started").on(table.shopId, table.startedAt),
+  index("idx_engagement_sessions_app_started").on(table.appId, table.startedAt),
+  index("idx_engagement_sessions_device_started").on(table.deviceType, table.startedAt),
+]);

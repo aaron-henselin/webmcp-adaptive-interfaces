@@ -1,5 +1,16 @@
-import type { CatalogAnalyticsBinding } from "./catalog-analytics";
 import type { PlotlyFigure, PlotlyTrace } from "./plotly-visualization";
+
+type FigureBinding = {
+  encoding: {
+    x?: string;
+    y?: string;
+    labels?: string;
+    values?: string;
+    text?: string;
+    series?: string;
+    hover: string[];
+  };
+};
 
 function clearTraceData(trace: PlotlyTrace) {
   const next: PlotlyTrace = { ...trace };
@@ -7,7 +18,7 @@ function clearTraceData(trace: PlotlyTrace) {
   return next;
 }
 
-export function bindCatalogRowsToFigure(figure: PlotlyFigure, binding: CatalogAnalyticsBinding, rows: Record<string, unknown>[]) {
+export function bindCatalogRowsToFigure(figure: PlotlyFigure, binding: FigureBinding, rows: Record<string, unknown>[]) {
   const grouped = new Map<string, Record<string, unknown>[]>();
   for (const row of rows) {
     const key = binding.encoding.series ? String(row[binding.encoding.series] ?? "Unspecified") : "";

@@ -1,18 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CATALOG_ANALYTICS_BINDING_SCHEMA, CATALOG_FIELD_CATALOG, normalizeCatalogAnalyticsBinding, OWNER_BANDS, PRICE_BANDS } from "./catalog-analytics";
-import { executeCatalogReport, loadCatalogPage, type CatalogPage } from "./catalog-data";
+import { CATALOG_ANALYTICS_BINDING_SCHEMA, CATALOG_FIELD_CATALOG, OWNER_BANDS, PRICE_BANDS } from "./catalog-analytics";
+import { executeCatalogReport, loadCatalogPage, searchGameCompanies, type CatalogPage } from "./catalog-data";
 import { bindCatalogRowsToFigure } from "./catalog-visualization";
+import {
+  DEFAULT_ENGAGEMENT_FILTERS,
+  ENGAGEMENT_ANALYTICS_BINDING_SCHEMA,
+  ENGAGEMENT_FIELD_CATALOG,
+  withPageEngagementFilters,
+  type EngagementSourceFilters,
+} from "./engagement-analytics";
+import { executeEngagementReport } from "./engagement-data";
+import EngagementResourcePanel from "./engagement-resource-panel";
 import { formatCompact, formatOwnerRange, formatPercent, formatPlaytime, formatPrice } from "./steamspy-data";
 import { normalizePlotlyFigure, PlotlyCanvas, PLOTLY_TRACE_TYPES, renderPlotlyFigureToPng, type PlotlyFigure } from "./plotly-visualization";
 import { PAGE_COMPOSITION_GUIDE } from "./page-composition-guide";
+import { createReportPresentationSchema, REPORT_MODE_CATALOG, REPORT_PRESENTATION_DESCRIPTION, reportPresentationShapeError } from "./report-presentation-schema";
 import AudienceOnboarding from "./audience-onboarding";
 import "./workspace.css";
 import {
-  HTML_BINDINGS, MAX_HTML_LENGTH, SPANS, VALUE_FORMATS, addReport, applyOperations, findBlock, loadWorkspace, normalizePresentation,
+  HTML_BINDINGS, MAX_HTML_LENGTH, SPANS, VALUE_FORMATS, addReport, applyOperations, findBlock, loadWorkspace, normalizeBuilderAnalyticsBinding, normalizePresentation,
   renderHtmlWidget, reportBlocks, saveWorkspace, validateBindings, workspaceOutline,
-  type BlockSpan, type HtmlBlock, type LeafBlock, type ReportBlock, type TabsBlock,
+  type BlockSpan, type BuilderAnalyticsBinding, type HtmlBlock, type LeafBlock, type ReportBlock, type TabsBlock,
   type ValueFormat, type Workspace, type WorkspaceBlock, type WorkspaceOperation,
 } from "./workspace-model";
 
@@ -31,18 +41,20 @@ const ownerBandLabels = new Map(OWNER_BANDS.map((band) => {
 }));
 
 const SAMPLE_PROMPTS = [
-  { mode: "Briefing", prompt: "Build me a welcoming daily briefing that highlights what matters in the catalog and gives me a clear next step." },
-  { mode: "Insight", prompt: "Show me the median price of games and explain what I should investigate next." },
-  { mode: "Overview", prompt: "Create an at-a-glance view of ownership and genre performance for today's review." },
-  { mode: "Organize", prompt: "Organize an executive overview and a deeper genre analysis so the page is easy to scan." },
+  { mode: "Briefing", prompt: "Build me a welcoming daily briefing with customer activity and one clear next step for my company." },
+  { mode: "Engagement", prompt: "Create four KPIs, an active-user trend, a conversion funnel, and device distribution using the page filters." },
+  { mode: "Catalog", prompt: "Show me the median price of games and explain what I should investigate next." },
+  { mode: "Organize", prompt: "Organize a company-aware executive overview with customer activity first and deeper product analysis in tabs." },
 ] as const;
 
 const PLOTLY_TRACE_SCHEMA = { type: "object", additionalProperties: true, properties: { type: { type: "string", enum: [...PLOTLY_TRACE_TYPES] }, name: { type: "string" }, x: { type: "array", maxItems: 2_000, items: {} }, y: { type: "array", maxItems: 2_000, items: {} }, labels: { type: "array", maxItems: 2_000, items: {} }, values: { type: "array", maxItems: 2_000, items: {} }, mode: { type: "string" }, orientation: { type: "string", enum: ["h", "v"] }, hole: { type: "number", minimum: 0, maximum: 0.9 }, marker: { type: "object", additionalProperties: true }, line: { type: "object", additionalProperties: true }, text: { type: "array", maxItems: 2_000, items: {} }, hovertemplate: { type: "string" } } };
-const REPORT_DATA_SCHEMA = { type: "object", additionalProperties: false, properties: { source: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.source, pipeline: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.pipeline, resultLimit: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.resultLimit }, required: ["source", "pipeline", "resultLimit"] };
+const CATALOG_REPORT_DATA_SCHEMA = { type: "object", additionalProperties: false, properties: { source: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.source, pipeline: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.pipeline, resultLimit: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.resultLimit }, required: ["source", "pipeline", "resultLimit"] };
+const ENGAGEMENT_REPORT_DATA_SCHEMA = { type: "object", additionalProperties: false, properties: { source: ENGAGEMENT_ANALYTICS_BINDING_SCHEMA.properties.source, pipeline: ENGAGEMENT_ANALYTICS_BINDING_SCHEMA.properties.pipeline, resultLimit: ENGAGEMENT_ANALYTICS_BINDING_SCHEMA.properties.resultLimit }, required: ["source", "pipeline", "resultLimit"] };
+const REPORT_DATA_SCHEMA = { oneOf: [CATALOG_REPORT_DATA_SCHEMA, ENGAGEMENT_REPORT_DATA_SCHEMA] };
 const REPORT_VISUALIZATION_SCHEMA = { type: "object", additionalProperties: false, properties: { renderer: { type: "string", const: "plotly" }, traces: { type: "array", minItems: 1, maxItems: 12, items: PLOTLY_TRACE_SCHEMA }, layout: { type: "object", additionalProperties: true }, encoding: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.encoding }, required: ["renderer", "traces", "encoding"] };
 const REPORT_METRIC_SCHEMA = { type: "object", additionalProperties: false, properties: { valueField: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 80 }, format: { type: "string", enum: VALUE_FORMATS }, context: { type: "string", maxLength: 180 } }, required: ["valueField", "label"] };
 const REPORT_COLUMN_SCHEMA = { type: "object", additionalProperties: false, properties: { field: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 60 }, format: { type: "string", enum: VALUE_FORMATS } }, required: ["field", "label"] };
-const REPORT_PRESENTATION_SCHEMA = { type: "object", additionalProperties: false, properties: { mode: { type: "string", enum: ["metric", "table", "chart", "narrative", "mixed"] }, metric: REPORT_METRIC_SCHEMA, table: { type: "object", additionalProperties: false, properties: { columns: { type: "array", minItems: 1, maxItems: 8, items: REPORT_COLUMN_SCHEMA } }, required: ["columns"] }, narrative: { type: "object", additionalProperties: false, properties: { body: { type: "string", maxLength: 800 } }, required: ["body"] }, visualization: REPORT_VISUALIZATION_SCHEMA }, required: ["mode"] };
+const REPORT_PRESENTATION_SCHEMA = createReportPresentationSchema({ metric: REPORT_METRIC_SCHEMA, tableColumn: REPORT_COLUMN_SCHEMA, visualization: REPORT_VISUALIZATION_SCHEMA });
 
 const COMPOSE_PAGE_SCHEMA = {
   type: "object", additionalProperties: false,
@@ -52,8 +64,8 @@ const COMPOSE_PAGE_SCHEMA = {
         type: "object", additionalProperties: true,
         properties: {
           op: { type: "string", enum: ["inspect", "setAudience", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"] },
-          target: { type: "string", maxLength: 128 }, firstName: { type: "string", maxLength: 60, description: "User-confirmed first name for local personalization." }, jobRole: { type: "string", maxLength: 100, description: "User-confirmed job role; required before page creation." }, title: { type: "string", maxLength: 100 }, markup: { type: "string", maxLength: MAX_HTML_LENGTH },
-          span: { type: "string", enum: SPANS, description: "Infer from content: full for primary/dense content, half for paired peers, third for compact KPIs or actions." }, after: { type: "string", maxLength: 128 }, before: { type: "string", maxLength: 128 },
+          target: { type: "string", maxLength: 128 }, firstName: { type: "string", maxLength: 60, description: "User-confirmed first name for local personalization." }, jobRole: { type: "string", maxLength: 100, description: "User-confirmed job role; required before page creation." }, companyId: { type: "integer", minimum: 1, description: "ID from the search_game_companies candidate explicitly selected by the user." }, companyName: { type: "string", maxLength: 120, description: "Exact name of the search_game_companies candidate explicitly selected by the user." }, title: { type: "string", maxLength: 100 }, markup: { type: "string", maxLength: MAX_HTML_LENGTH },
+          span: { type: "string", enum: SPANS, description: "Infer from content: full for primary/dense content, half for paired peers, third for three-up summaries, quarter for four compact KPIs." }, after: { type: "string", maxLength: 128 }, before: { type: "string", maxLength: 128 },
           labels: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", maxLength: 60 } },
           tabLabels: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", maxLength: 60 } },
           intoTab: { type: "object", additionalProperties: false, properties: { tabsId: { type: "string", maxLength: 128 }, tabId: { type: "string", maxLength: 128 } }, required: ["tabsId", "tabId"] },
@@ -72,6 +84,8 @@ const validSpan = (value: unknown): BlockSpan | undefined => SPANS.includes(valu
 function createPresentation(input: Record<string, unknown>) {
   if (!isRecord(input.presentation)) throw new Error("A report presentation is required.");
   const supplied = input.presentation;
+  const shapeError = reportPresentationShapeError(supplied);
+  if (shapeError) throw new Error(shapeError);
   let figure: PlotlyFigure | undefined;
   let encoding: Record<string, unknown> = { hover: [] };
   if (isRecord(supplied.visualization)) {
@@ -79,7 +93,7 @@ function createPresentation(input: Record<string, unknown>) {
     encoding = isRecord(supplied.visualization.encoding) ? supplied.visualization.encoding : { hover: [] };
   }
   const normalized = normalizePresentation({ ...supplied, figure });
-  if (!normalized) throw new Error("The selected report mode is missing required presentation fields.");
+  if (!normalized) throw new Error(`The ${String(supplied.mode)} report has an invalid presentation definition.`);
   return { presentation: normalized, encoding };
 }
 
@@ -93,8 +107,14 @@ function formatValue(value: unknown, format: ValueFormat) {
   return format === "integer" ? Math.round(number).toLocaleString() : number.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
-async function runReport(report: ReportBlock): Promise<ReportResult> {
-  const rows = await executeCatalogReport(report.binding);
+async function executeBuilderReport(binding: BuilderAnalyticsBinding, pageFilters: EngagementSourceFilters, signal?: AbortSignal) {
+  return binding.source.name === "customer_engagement"
+    ? executeEngagementReport(withPageEngagementFilters(binding, pageFilters), signal)
+    : executeCatalogReport(binding, signal);
+}
+
+async function runReport(report: ReportBlock, pageFilters: EngagementSourceFilters, signal?: AbortSignal): Promise<ReportResult> {
+  const rows = await executeBuilderReport(report.binding, pageFilters, signal);
   if (report.presentation.mode === "chart" || report.presentation.mode === "mixed") {
     return { rows, figure: normalizePlotlyFigure(bindCatalogRowsToFigure(report.presentation.figure, report.binding, rows)) };
   }
@@ -118,7 +138,7 @@ function ReportContent({ report, result }: { report: ReportBlock; result: Report
   const presentation = report.presentation;
   if (presentation.mode === "metric" || presentation.mode === "mixed") {
     const value = result.rows[0]?.[presentation.metric.valueField];
-    return <div className={`report-body report-body-${presentation.mode}`}><div className="metric-answer"><span>{presentation.metric.label}</span><strong>{formatValue(value, presentation.metric.format)}</strong><span>{presentation.metric.context || "Calculated by the catalog database."}</span></div>{presentation.mode === "mixed" && result.figure ? <PlotlyCanvas figure={result.figure} /> : null}</div>;
+    return <div className={`report-body report-body-${presentation.mode}`}><div className="metric-answer"><span>{presentation.metric.label}</span><strong>{formatValue(value, presentation.metric.format)}</strong><span>{presentation.metric.context || "Calculated from the catalog."}</span></div>{presentation.mode === "mixed" && result.figure ? <PlotlyCanvas figure={result.figure} /> : null}</div>;
   }
   if (presentation.mode === "table") return <div className="report-table-wrap"><table className="report-table"><thead><tr>{presentation.table.columns.map((column) => <th key={column.field}>{column.label}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{presentation.table.columns.map((column) => <td key={column.field}>{formatValue(row[column.field], column.format)}</td>)}</tr>)}</tbody></table></div>;
   if (presentation.mode === "narrative") return <div className="narrative-report"><span aria-hidden="true">“</span><p>{presentation.narrative.body}</p></div>;
@@ -129,26 +149,26 @@ function BlockControls({ block, selected, onSelect, onMove, onSpan, onRemove, on
   return <div className="workspace-block-controls" onClick={(event) => event.stopPropagation()}><button type="button" className="block-grip" draggable onDragStart={onDragStart} onClick={onSelect} aria-label={`Select and drag ${block.title}`}>⠿</button><span>{block.type}</span><button type="button" onClick={() => onMove(-1)} aria-label={`Move ${block.title} earlier`}>↑</button><button type="button" onClick={() => onMove(1)} aria-label={`Move ${block.title} later`}>↓</button><button type="button" onClick={onSpan} aria-label={`Change width of ${block.title}`}>{block.span}</button><button type="button" onClick={onRemove} aria-label={`Remove ${block.title}`}>×</button><i aria-hidden="true" className={selected ? "selected-mark" : ""} /></div>;
 }
 
-function ReportWidget({ block }: { block: ReportBlock }) {
+function ReportWidget({ block, pageFilters }: { block: ReportBlock; pageFilters: EngagementSourceFilters }) {
   const [result, setResult] = useState<ReportResult | null>(null);
   const [error, setError] = useState("");
-  const definitionKey = JSON.stringify([block.binding, block.presentation]);
+  const definitionKey = JSON.stringify([block.binding, block.presentation, block.binding.source.name === "customer_engagement" && block.binding.source.inheritPageFilters ? pageFilters : null]);
   useEffect(() => {
     const controller = new AbortController();
-    executeCatalogReport(block.binding, controller.signal).then((rows) => {
+    executeBuilderReport(block.binding, pageFilters, controller.signal).then((rows) => {
       if (block.presentation.mode === "chart" || block.presentation.mode === "mixed") setResult({ rows, figure: normalizePlotlyFigure(bindCatalogRowsToFigure(block.presentation.figure, block.binding, rows)) });
       else setResult({ rows });
       setError("");
     }).catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Report unavailable."); });
     return () => controller.abort();
-  // The serialized definition is the report's semantic identity; layout clones keep it unchanged.
+  // The serialized definition and inherited page filters are the report's semantic identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitionKey]);
-  return <><header className="workspace-report-header"><div><p className="eyebrow"><span /> Database report</p><h3>{block.title}</h3>{block.description ? <p>{block.description}</p> : null}</div><span>{block.presentation.mode}</span></header>{error ? <div className="block-status error">{error}</div> : result ? <ReportContent report={block} result={result} /> : <div className="block-status">Running report…</div>}</>;
+  return <><header className="workspace-report-header"><div><h3>{block.title}</h3>{block.description ? <p>{block.description}</p> : null}</div><span>{block.presentation.mode}</span></header>{error ? <div className="block-status error">{error}</div> : result ? <ReportContent report={block} result={result} /> : <div className="block-status">Preparing report…</div>}</>;
 }
 
-function HtmlWidget({ block, recordCount, firstName, jobRole }: { block: HtmlBlock; recordCount: number; firstName: string; jobRole: string }) {
-  const safeMarkup = useMemo(() => renderHtmlWidget(block.markup, { pageTitle: PAGE_TITLE, recordCount, userFirstName: firstName, userJobRole: jobRole }), [block.markup, firstName, jobRole, recordCount]);
+function HtmlWidget({ block, recordCount, firstName, jobRole, company }: { block: HtmlBlock; recordCount: number; firstName: string; jobRole: string; company: string }) {
+  const safeMarkup = useMemo(() => renderHtmlWidget(block.markup, { pageTitle: PAGE_TITLE, recordCount, userFirstName: firstName, userJobRole: jobRole, userCompany: company }), [block.markup, company, firstName, jobRole, recordCount]);
   return <div className="html-widget"><span className="html-widget-label">{block.title}</span><div dangerouslySetInnerHTML={{ __html: safeMarkup }} /></div>;
 }
 
@@ -163,9 +183,9 @@ function normalizeOperations(value: unknown): WorkspaceOperation[] {
     if (!isRecord(item) || typeof item.op !== "string") throw new Error("Each page operation requires an op.");
     const target = typeof item.target === "string" ? item.target.slice(0, 128) : "selected";
     if (item.op === "inspect" || item.op === "undo" || item.op === "reset") return { op: item.op };
-    if (item.op === "setAudience") { const firstName = text(item.firstName, "", 60); const jobRole = text(item.jobRole, "", 100); if (!firstName || !jobRole) throw new Error("setAudience requires the user-confirmed first name and job role."); return { op: "setAudience", firstName, jobRole }; }
+    if (item.op === "setAudience") { const firstName = text(item.firstName, "", 60); const jobRole = text(item.jobRole, "", 100); const companyId = typeof item.companyId === "number" ? Math.floor(item.companyId) : 0; const companyName = text(item.companyName, "", 120); if (!firstName || !jobRole || companyId < 1 || !companyName) throw new Error("setAudience requires the user-confirmed first name, job role, and selected company candidate."); return { op: "setAudience", firstName, jobRole, companyId, companyName }; }
     if (item.op === "select" || item.op === "remove") return { op: item.op, target };
-    if (item.op === "setSpan") { const span = validSpan(item.span); if (!span) throw new Error("setSpan requires full, half, or third."); return { op: "setSpan", target, span }; }
+    if (item.op === "setSpan") { const span = validSpan(item.span); if (!span) throw new Error("setSpan requires full, half, third, or quarter."); return { op: "setSpan", target, span }; }
     if (item.op === "addHtml") { if (typeof item.markup !== "string") throw new Error("addHtml requires markup."); validateBindings(item.markup); return { op: "addHtml", title: typeof item.title === "string" ? item.title : undefined, markup: item.markup, span: validSpan(item.span), after: typeof item.after === "string" ? item.after : undefined }; }
     if (item.op === "addTabs") { if (!Array.isArray(item.labels)) throw new Error("addTabs requires labels."); return { op: "addTabs", title: typeof item.title === "string" ? item.title : undefined, labels: item.labels.filter((label): label is string => typeof label === "string"), span: validSpan(item.span), after: typeof item.after === "string" ? item.after : undefined }; }
     if (item.op === "configure") { if (typeof item.markup === "string") validateBindings(item.markup); return { op: "configure", target, title: typeof item.title === "string" ? item.title : undefined, markup: typeof item.markup === "string" ? item.markup : undefined, tabLabels: Array.isArray(item.tabLabels) ? item.tabLabels.filter((label): label is string => typeof label === "string") : undefined }; }
@@ -190,13 +210,17 @@ export default function WorkspacePage() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [editingAudience, setEditingAudience] = useState(false);
+  const [pageCreationRequested, setPageCreationRequested] = useState(false);
+  const [engagementFilters, setEngagementFilters] = useState<EngagementSourceFilters>(DEFAULT_ENGAGEMENT_FILTERS);
   const workspaceRef = useRef<Workspace | null>(null);
+  const engagementFiltersRef = useRef(engagementFilters);
   const undoRef = useRef<Workspace | null>(null);
   const workspaceSectionRef = useRef<HTMLElement>(null);
   const visualizationRef = useRef<HTMLElement>(null);
 
   const commitWorkspace = useCallback((next: Workspace, remember = true) => {
     if (remember && workspaceRef.current) { undoRef.current = structuredClone(workspaceRef.current); setCanUndo(true); }
+    if (next.blocks.length) setPageCreationRequested(false);
     workspaceRef.current = next; setWorkspace(next); saveWorkspace(next);
   }, []);
 
@@ -206,6 +230,7 @@ export default function WorkspacePage() {
   }, [commitWorkspace]);
 
   useEffect(() => { const loaded = loadWorkspace(); workspaceRef.current = loaded; queueMicrotask(() => setWorkspace(loaded)); }, []);
+  useEffect(() => { engagementFiltersRef.current = engagementFilters; }, [engagementFilters]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -228,13 +253,14 @@ export default function WorkspacePage() {
     const createReport = async (input: Record<string, unknown>) => {
       const current = workspaceRef.current;
       if (!current) throw new Error("The page workspace is unavailable.");
-      if (!current.audience.firstName || !current.audience.jobRole) throw new Error("Before creating a page, ask the user for their first name and job role, then save both with compose_page setAudience.");
+      if (!current.audience.firstName || !current.audience.jobRole || !current.audience.company) throw new Error("Before creating a page, collect the user's first name and job role, use search_game_companies, let the user select a company candidate, then save all three with compose_page setAudience.");
       const created = createPresentation(input);
       const data = isRecord(input.data) ? input.data : {};
-      const binding = normalizeCatalogAnalyticsBinding({ ...data, encoding: created.encoding });
-      if (!binding) throw new Error("Invalid catalog report definition.");
-      const report: ReportBlock = { id: crypto.randomUUID(), type: "report", span: validSpan(input.span) ?? "full", title: text(input.title, "Steam catalog report", 100), description: text(input.description, "", 220), createdAt: new Date().toISOString(), presentation: created.presentation, binding };
-      const result = await runReport(report);
+      const binding = normalizeBuilderAnalyticsBinding({ ...data, encoding: created.encoding });
+      if (!binding) throw new Error("Invalid page report definition.");
+      const fallbackTitle = binding.source.name === "customer_engagement" ? "Customer engagement report" : "Steam catalog report";
+      const report: ReportBlock = { id: crypto.randomUUID(), type: "report", span: validSpan(input.span) ?? "full", title: text(input.title, fallbackTitle, 100), description: text(input.description, "", 220), createdAt: new Date().toISOString(), presentation: created.presentation, binding };
+      const result = await runReport(report, engagementFiltersRef.current);
       const available = new Set(result.rows.flatMap(Object.keys));
       if ((report.presentation.mode === "metric" || report.presentation.mode === "mixed") && result.rows.length && !available.has(report.presentation.metric.valueField)) throw new Error(`Result field ${report.presentation.metric.valueField} is unavailable.`);
       if (report.presentation.mode === "table") { const missing = report.presentation.table.columns.find((column) => result.rows.length && !available.has(column.field)); if (missing) throw new Error(`Result field ${missing.field} is unavailable.`); }
@@ -244,14 +270,46 @@ export default function WorkspacePage() {
     };
 
     const tools = [
-      { name: "describe_steam_catalog", description: "Describe the catalog, current page, audience status, and composition guide. Before page creation, inspect workspace.audience. If firstName or jobRole is missing, ask the user for both and save them with compose_page setAudience; never infer their role.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => { const current = workspaceRef.current!; return { content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable fields and ${workspaceOutline(current).length} page blocks.` }], structuredContent: { schemaVersion: "steam-desk.workspace/v1", source: { name: "steam_catalog", recordCount }, fields: CATALOG_FIELD_CATALOG, workspace: { storage: "local", audience: current.audience, selectedBlockId: current.selectedBlockId, blocks: workspaceOutline(current) }, htmlBindings: HTML_BINDINGS, compositionGuide: PAGE_COMPOSITION_GUIDE, spans: SPANS, composeOperations: ["inspect", "setAudience", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"], reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA } } }; } },
-      { name: "create_report", description: "Create a database-backed report and place it inline. Requires a user-confirmed first name and job role already stored through compose_page setAudience. Tailor priorities to the role and infer span from the composition guide.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, span: { type: "string", enum: SPANS, description: "Choose from the composition guide: full for primary/dense content, half for paired peers, third for compact KPIs." }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const created = await createReport(input); return { content: [{ type: "text", text: `Created “${created.report.title}” and placed it on the page.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v4", ok: true, report: { id: created.report.id, title: created.report.title, mode: created.report.presentation.mode, span: created.report.span, rowCount: created.result.rows.length }, workspace: { storage: "local", selectedBlockId: created.report.id } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }] }; } } },
-      { name: "compose_page", description: "Inspect or compose the local page. Before creating blocks, identify the user's first name and job role. If either is missing, stop and ask; never guess. Save both with setAudience, then tailor priorities, vocabulary, and the CTA to the role while inferring layout from pageCompositionGuide.", inputSchema: COMPOSE_PAGE_SCHEMA, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const operations = normalizeOperations(input.operations); const current = workspaceRef.current; if (!current) throw new Error("The page workspace is unavailable."); let audience = current.audience; for (const operation of operations) { if (operation.op === "setAudience") audience = { firstName: operation.firstName, jobRole: operation.jobRole }; if ((operation.op === "addHtml" || operation.op === "addTabs") && (!audience.firstName || !audience.jobRole)) throw new Error("Before creating page blocks, ask the user for their first name and job role, then run setAudience first."); } if (operations.some((operation) => operation.op === "undo")) { if (operations.length !== 1) throw new Error("undo must be the only page operation."); const changed = undoWorkspace(); const restored = workspaceRef.current!; return { content: [{ type: "text", text: changed ? "Undid the last page change." : "There is no page change to undo." }], structuredContent: { ok: true, changed, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: restored.audience, selectedBlockId: restored.selectedBlockId, blocks: workspaceOutline(restored) } } }; } const applied = applyOperations(current, operations); if (applied.changes.length) commitWorkspace(applied.workspace, !operations.every((operation) => operation.op === "select")); if (input.openInBrowser !== false && applied.changes.length) window.setTimeout(() => workspaceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); return { content: [{ type: "text", text: applied.changes.length ? applied.changes.join(" ") : `The page contains ${workspaceOutline(applied.workspace).length} top-level blocks.` }], structuredContent: { schemaVersion: "steam-desk.compose-receipt/v1", ok: true, changed: Boolean(applied.changes.length), changes: applied.changes, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: applied.workspace.audience, selectedBlockId: applied.workspace.selectedBlockId, blocks: workspaceOutline(applied.workspace) } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Page composition failed." }], structuredContent: { ok: false } }; } } },
-      { name: "render_report", description: "Render an inline report from the local page as bounded Markdown or a PNG.", inputSchema: { type: "object", additionalProperties: false, properties: { reportId: { type: "string", minLength: 1, maxLength: 128 }, renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto" } }, required: ["reportId"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const current = workspaceRef.current; const report = current ? reportBlocks(current).find((item) => item.id === input.reportId) : null; if (!report) throw new Error("Report not found on this page."); const result = await runReport(report); const imageMode = input.renderMode === "image" || input.renderMode !== "markdown" && Boolean(result.figure); if (imageMode) { if (!result.figure) throw new Error("Image rendering is available only for chart reports."); return { content: [{ type: "text", text: `Rendered “${report.title}” as a PNG.` }, { type: "image", data: await renderPlotlyFigureToPng(result.figure), mimeType: "image/png" }], structuredContent: { ok: true, report: { id: report.id, title: report.title } } }; } return { content: [{ type: "text", text: markdownReport(report, result) }], structuredContent: { ok: true, report: { id: report.id, title: report.title } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report rendering failed." }] }; } } },
+      { name: "describe_page_data", description: "Describe the builder's Steam product catalog, customer engagement data, current shared filters, page outline, audience status, composition guide, and exact report presentation modes. Before page creation, inspect workspace.audience. Missing companies must be searched with search_game_companies and selected by the user; never infer a role or employer.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => { const current = workspaceRef.current!; return { content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length + ENGAGEMENT_FIELD_CATALOG.length} reportable fields across two builder sources and ${workspaceOutline(current).length} page blocks.` }], structuredContent: { schemaVersion: "steam-desk.workspace/v2", sources: [{ name: "steam_catalog", label: "Steam product catalog", recordCount, fields: CATALOG_FIELD_CATALOG }, { name: "customer_engagement", label: "Customer engagement", views: ["sessions", "funnel"], fields: ENGAGEMENT_FIELD_CATALOG, sharedFilters: engagementFiltersRef.current, guidance: ["Use sessions for users, sessions, duration, device, product, shop, and customer analysis.", "Use funnel for ordered Visitors, Sign-ups, Active, and Subscribed stages.", "Set inheritPageFilters to true for reports that should respond to the builder's filter panel.", "Supplier maps to publisher, brand to developer, productCategory to genre, and productClass to Steam category."] }], workspace: { storage: "local", audience: current.audience, selectedBlockId: current.selectedBlockId, blocks: workspaceOutline(current) }, htmlBindings: HTML_BINDINGS, compositionGuide: PAGE_COMPOSITION_GUIDE, spans: SPANS, composeOperations: ["inspect", "setAudience", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"], reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA }, presentationModes: REPORT_MODE_CATALOG, guidance: [REPORT_PRESENTATION_DESCRIPTION] } }; } },
+      { name: "search_game_companies", description: "Full-text search developer and publisher company names in the Steam catalog. Return ranked candidates only. Present the candidates and wait for the user to select the closest match; never choose or save a company on the user's behalf.", inputSchema: { type: "object", additionalProperties: false, properties: { query: { type: "string", minLength: 2, maxLength: 120, description: "Company name supplied by the user." } }, required: ["query"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const query = text(input.query, "", 120); if (query.length < 2) throw new Error("Company search requires at least two characters."); const candidates = await searchGameCompanies(query, controller.signal); return { content: [{ type: "text", text: candidates.length ? `Found ${candidates.length} candidate companies. Present them to the user and wait for their selection.` : "No matching catalog companies were found. Ask the user for a broader or alternate company name." }], structuredContent: { schemaVersion: "steam-desk.company-search/v1", query, candidates, selectionRequired: true, instruction: "The user must select the closest match. Do not select a candidate for them." } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Company search failed." }] }; } } },
+      { name: "create_report", description: "Create a database-backed report from either the Steam product catalog or customer engagement source and place it inline. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports or tabs when both a chart and table are needed. Requires a user-confirmed name and role plus a company candidate explicitly selected by the user. Use role and company context to tailor priorities and framing, and use quarter width for a row of four compact KPIs.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, span: { type: "string", enum: SPANS, description: "Choose full for primary or dense content, half for paired peers, third for three-up summaries, or quarter for four compact KPIs." }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const created = await createReport(input); return { content: [{ type: "text", text: `Created “${created.report.title}” and placed it on the page.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v5", ok: true, report: { id: created.report.id, title: created.report.title, source: created.report.binding.source.name, mode: created.report.presentation.mode, span: created.report.span, rowCount: created.result.rows.length }, workspace: { storage: "local", selectedBlockId: created.report.id } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }] }; } } },
+      { name: "compose_page", description: "Inspect or compose the local page. Before creating blocks, collect the user's first name and job role, search company candidates, and wait for the user to select one. Save the exact selected candidate with setAudience; never guess. Use both role and company to tailor priorities, framing, vocabulary, and the CTA.", inputSchema: COMPOSE_PAGE_SCHEMA, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const operations = normalizeOperations(input.operations); const current = workspaceRef.current; if (!current) throw new Error("The page workspace is unavailable."); const audienceOperations = operations.filter((operation): operation is Extract<WorkspaceOperation, { op: "setAudience" }> => operation.op === "setAudience"); const candidateLists = await Promise.all(audienceOperations.map((operation) => searchGameCompanies(operation.companyName, controller.signal))); for (let index = 0; index < audienceOperations.length; index += 1) { const operation = audienceOperations[index]; const selected = candidateLists[index].some((candidate) => candidate.id === operation.companyId && candidate.name === operation.companyName); if (!selected) throw new Error("The selected company must exactly match a candidate returned by search_game_companies."); } let audience = current.audience; for (const operation of operations) { if (operation.op === "setAudience") audience = { firstName: operation.firstName, jobRole: operation.jobRole, company: { id: operation.companyId, name: operation.companyName } }; if ((operation.op === "addHtml" || operation.op === "addTabs") && (!audience.firstName || !audience.jobRole || !audience.company)) throw new Error("Before creating page blocks, collect the user's name and role, then search companies and let the user select a candidate before setAudience."); } if (operations.some((operation) => operation.op === "undo")) { if (operations.length !== 1) throw new Error("undo must be the only page operation."); const changed = undoWorkspace(); const restored = workspaceRef.current!; return { content: [{ type: "text", text: changed ? "Undid the last page change." : "There is no page change to undo." }], structuredContent: { ok: true, changed, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: restored.audience, selectedBlockId: restored.selectedBlockId, blocks: workspaceOutline(restored) } } }; } const applied = applyOperations(current, operations); if (applied.changes.length) commitWorkspace(applied.workspace, !operations.every((operation) => operation.op === "select")); if (input.openInBrowser !== false && applied.changes.length) window.setTimeout(() => workspaceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); return { content: [{ type: "text", text: applied.changes.length ? applied.changes.join(" ") : `The page contains ${workspaceOutline(applied.workspace).length} top-level blocks.` }], structuredContent: { schemaVersion: "steam-desk.compose-receipt/v1", ok: true, changed: Boolean(applied.changes.length), changes: applied.changes, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: applied.workspace.audience, selectedBlockId: applied.workspace.selectedBlockId, blocks: workspaceOutline(applied.workspace) } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Page composition failed." }], structuredContent: { ok: false } }; } } },
+      { name: "render_report", description: "Render an inline report from the local page as bounded Markdown or a PNG.", inputSchema: { type: "object", additionalProperties: false, properties: { reportId: { type: "string", minLength: 1, maxLength: 128 }, renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto" } }, required: ["reportId"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const current = workspaceRef.current; const report = current ? reportBlocks(current).find((item) => item.id === input.reportId) : null; if (!report) throw new Error("Report not found on this page."); const result = await runReport(report, engagementFiltersRef.current); const imageMode = input.renderMode === "image" || input.renderMode !== "markdown" && Boolean(result.figure); if (imageMode) { if (!result.figure) throw new Error("Image rendering is available only for chart reports."); return { content: [{ type: "text", text: `Rendered “${report.title}” as a PNG.` }, { type: "image", data: await renderPlotlyFigureToPng(result.figure), mimeType: "image/png" }], structuredContent: { ok: true, report: { id: report.id, title: report.title } } }; } return { content: [{ type: "text", text: markdownReport(report, result) }], structuredContent: { ok: true, report: { id: report.id, title: report.title } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report rendering failed." }] }; } } },
     ];
     void Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal }))).catch(() => undefined);
     return () => controller.abort();
   }, [commitWorkspace, recordCount, sourceSha256, undoWorkspace]);
+
+  useEffect(() => {
+    if (!pageCreationRequested || recordCount === undefined || !workspace || workspace.blocks.length) return;
+    const context = document.modelContext ?? navigator.modelContext;
+    if (!context) return;
+    const controller = new AbortController();
+    const tool = {
+      name: "page_creation_requested",
+      description: "The user just clicked Continue to page builder after confirming their audience. This newly available tool is an explicit signal to create their personalized page next. Call it now, then use the returned audience and composition guidance to build a sensible role-and-company-aware starter page without asking the user to repeat or reconfirm those details.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute: () => {
+        const current = workspaceRef.current;
+        if (!current?.audience.firstName || !current.audience.jobRole || !current.audience.company) {
+          return { isError: true, content: [{ type: "text", text: "The audience is not ready for page creation." }] };
+        }
+        return {
+          content: [{ type: "text", text: `${current.audience.firstName} completed audience selection and explicitly requested page creation. Create the personalized page next; use the existing conversation goal when available, otherwise compose a concise role-and-company-aware briefing.` }],
+          structuredContent: {
+            schemaVersion: "steam-desk.page-creation-request/v1",
+            requestedAction: "create_page",
+            audience: current.audience,
+            compositionGuide: PAGE_COMPOSITION_GUIDE,
+            instruction: "Create the page now with compose_page and create_report. Do not ask the user to repeat or reconfirm their audience details.",
+          },
+        };
+      },
+    };
+    void context.registerTool(tool, { signal: controller.signal }).catch(() => undefined);
+    return () => controller.abort();
+  }, [pageCreationRequested, recordCount, workspace?.blocks.length]);
 
   const applyUiOperations = useCallback((operations: WorkspaceOperation[]) => {
     const current = workspaceRef.current; if (!current) return;
@@ -259,9 +317,12 @@ export default function WorkspacePage() {
     catch { /* Invalid manual moves leave the current layout unchanged. */ }
   }, [commitWorkspace]);
 
-  const audienceReady = Boolean(workspace?.audience.firstName && workspace?.audience.jobRole);
-  const saveAudience = (firstName: string, jobRole: string) => {
-    applyUiOperations([{ op: "setAudience", firstName, jobRole }]);
+  const audienceReady = Boolean(workspace?.audience.firstName && workspace?.audience.jobRole && workspace?.audience.company);
+  const onboardingActive = Boolean(workspace && (!audienceReady || editingAudience));
+  const studioActive = Boolean(workspace && audienceReady && !editingAudience);
+  const saveAudience = (firstName: string, jobRole: string, company: { id: number; name: string }) => {
+    applyUiOperations([{ op: "setAudience", firstName, jobRole, companyId: company.id, companyName: company.name }]);
+    if (!audienceReady && !workspace?.blocks.length) setPageCreationRequested(true);
     setEditingAudience(false);
   };
 
@@ -273,7 +334,7 @@ export default function WorkspacePage() {
   const dropBefore = (target: string, event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id && id !== target) applyUiOperations([{ op: "move", target: id, before: target }]); };
   const dropIntoTab = (tabsId: string, tabId: string, event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, intoTab: { tabsId, tabId } }]); };
 
-  const renderLeaf = (block: LeafBlock, siblings: WorkspaceBlock[]) => <article key={block.id} className={`workspace-block span-${block.span} ${workspace?.selectedBlockId === block.id ? "is-selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectBlock(block.id); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropBefore(block.id, event)}><BlockControls block={block} selected={workspace?.selectedBlockId === block.id} onSelect={() => selectBlock(block.id)} onMove={(direction) => moveInContainer(siblings, block.id, direction)} onSpan={() => cycleSpan(block.id, block.span)} onRemove={() => removeBlock(block.id)} onDragStart={(event) => startDrag(block.id, event)} />{block.type === "report" ? <ReportWidget block={block} /> : <HtmlWidget block={block} recordCount={recordCount ?? 0} firstName={workspace?.audience.firstName ?? ""} jobRole={workspace?.audience.jobRole ?? ""} />}</article>;
+  const renderLeaf = (block: LeafBlock, siblings: WorkspaceBlock[]) => <article key={block.id} className={`workspace-block span-${block.span} ${workspace?.selectedBlockId === block.id ? "is-selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectBlock(block.id); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropBefore(block.id, event)}><BlockControls block={block} selected={workspace?.selectedBlockId === block.id} onSelect={() => selectBlock(block.id)} onMove={(direction) => moveInContainer(siblings, block.id, direction)} onSpan={() => cycleSpan(block.id, block.span)} onRemove={() => removeBlock(block.id)} onDragStart={(event) => startDrag(block.id, event)} />{block.type === "report" ? <ReportWidget block={block} pageFilters={engagementFilters} /> : <HtmlWidget block={block} recordCount={recordCount ?? 0} firstName={workspace?.audience.firstName ?? ""} jobRole={workspace?.audience.jobRole ?? ""} company={workspace?.audience.company?.name ?? ""} />}</article>;
 
   const renderTabs = (block: TabsBlock) => {
     const activeId = activeTabs[block.id] ?? block.tabs[0]?.id;
@@ -289,15 +350,15 @@ export default function WorkspacePage() {
   const end = Math.min((visiblePage + 1) * PAGE_SIZE, total);
   const sortIndicator = (key: SortKey) => sortKey === key ? sortDirection === "asc" ? "↑" : "↓" : "↕";
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
-  const renderChart = (type: ChartType) => { if (!catalog) return; const titles = { owners: "Estimated ownership", reviews: "Review sentiment", price: "Price bands" } as const; setVisualization({ type, title: titles[type], subtitle: `Database summary for ${catalog.query.total.toLocaleString()} matching games`, items: catalog.distributions[type] }); window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); };
+  const renderChart = (type: ChartType) => { if (!catalog) return; const titles = { owners: "Estimated ownership", reviews: "Review sentiment", price: "Price bands" } as const; setVisualization({ type, title: titles[type], subtitle: `Summary of ${catalog.query.total.toLocaleString()} matching games`, items: catalog.distributions[type] }); window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); };
 
-  return <main className="site-shell builder-site-shell"><section className="release-desk builder-desk" aria-label="Steam Desk page builder">
-    <section className="page-workspace" ref={workspaceSectionRef} aria-labelledby="workspace-title">
-      <header className="page-workspace-header">
+  return <main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk page builder">
+    <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
+      {!onboardingActive ? <header className="page-workspace-header">
         <div>
-          <p className="eyebrow"><span /> {audienceReady ? "Step 2 of 2 · Compose" : "Step 1 of 2 · Audience"}</p>
+          {audienceReady ? <p className="eyebrow"><span /> Step 2 of 2 · Compose</p> : null}
           <h2 id="workspace-title">{audienceReady && !editingAudience ? "Your page" : "Know your audience"}</h2>
-          <p>{audienceReady && !editingAudience ? "Live canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") : "A useful page starts with who it is for. Confirm two details before WebMCP chooses the content and layout."}</p>
+          <p>{audienceReady && !editingAudience ? "Live canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + " at " + (workspace?.audience.company?.name ?? "") : "A useful page starts with who it is for. Confirm your name, role, and game company before WebMCP chooses the content and layout."}</p>
         </div>
         <div className="workspace-actions">
           {audienceReady && !editingAudience ? <>
@@ -307,11 +368,12 @@ export default function WorkspacePage() {
             <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
           </> : <span>Audience setup</span>}
         </div>
-      </header>
+      </header> : null}
       {workspace && (!audienceReady || editingAudience) ? (
         <AudienceOnboarding
           initialFirstName={workspace.audience.firstName}
           initialJobRole={workspace.audience.jobRole}
+          initialCompany={workspace.audience.company}
           canCancel={audienceReady}
           onSave={saveAudience}
           onCancel={() => setEditingAudience(false)}
@@ -325,15 +387,16 @@ export default function WorkspacePage() {
       ) : (
         <div className="workspace-empty"><div><strong>Loading your local page…</strong></div></div>
       )}
-      <footer className="page-workspace-footer">
+      {!onboardingActive ? <footer className="page-workspace-footer">
         <span>Stored in this browser</span>
-        <span>{workspace?.audience.jobRole ? workspace.audience.firstName + " · " + workspace.audience.jobRole : "Audience setup required"}</span>
-        <span>Catalog results run against D1</span>
+        <span>{workspace?.audience.company ? workspace.audience.firstName + " · " + workspace.audience.jobRole + " · " + workspace.audience.company.name : "Audience setup required"}</span>
+        <span>Catalog insights use the latest available data</span>
         <span>Selected: {workspace ? findBlock(workspace, workspace.selectedBlockId)?.title ?? "none" : "none"}</span>
-      </footer>
+      </footer> : null}
     </section>
-    {audienceReady && !editingAudience ? <details className="builder-resource-panel"><summary><span><strong>Prompt starters</strong><small>Optional ideas for composing the page</small></span><b aria-hidden="true">+</b></summary><section className="prompt-guide" aria-labelledby="prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP already knows who it is composing for, so it can choose widths, hierarchy, personalization, and the next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section></details> : null}
-    <details className="builder-resource-panel catalog-resource-panel"><summary><span><strong>Catalog data</strong><small>{catalog ? `${total.toLocaleString()} matching games available to the page` : "Loading the connected catalog"}</small></span><b aria-hidden="true">+</b></summary><div id="catalog-browser" className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label><button type="button" className="view-button" disabled={!catalog} onClick={() => renderChart("owners")}>Quick view <span>↗</span></button></div><div className="result-strip"><span>{catalog ? <><strong>{total.toLocaleString()}</strong> games match · queried from D1</> : catalogError || "Loading catalog database…"}</span><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setPage(0); }}>Reset filters</button></div>
-    <div className="table-wrap"><table><thead><tr><th><button type="button" onClick={() => changeSort("title")}>Game <span>{sortIndicator("title")}</span></button></th><th><button type="button" onClick={() => changeSort("ownersMax")}>Owners <span>{sortIndicator("ownersMax")}</span></button></th><th><button type="button" onClick={() => changeSort("priceCents")}>Price <span>{sortIndicator("priceCents")}</span></button></th><th><button type="button" onClick={() => changeSort("positiveRatio")}>Reviews <span>{sortIndicator("positiveRatio")}</span></button></th><th><button type="button" onClick={() => changeSort("ccu")}>Players <span>{sortIndicator("ccu")}</span></button></th><th>Avg. playtime</th></tr></thead><tbody>{games.map((game) => { const accent = Math.abs(game.id) % coverMarks.length; return <tr key={game.id}><td><div className="game-cell"><span className={`cover cover-${accent}`} aria-hidden="true"><i>{coverMarks[accent]}</i><b>{game.title.split(" ").map((word) => word[0]).slice(0, 2).join("")}</b></span><span><strong>{game.title}</strong><small>{game.developer}{game.genres.length ? ` · ${game.genres.slice(0, 2).join(", ")}` : ""}</small></span></div></td><td><span className="genre-pill" title={game.owners}>{formatOwnerRange(game)}</span></td><td className="price-cell">{formatPrice(game.priceCents)}</td><td className="wishlist-cell">{formatPercent(game.positiveRatio)}</td><td className="wishlist-cell">{formatCompact(game.ccu)}</td><td><span className="status">{formatPlaytime(game.averageForever)}</span></td></tr>; })}{!games.length && <tr><td colSpan={6}><div className="empty-state"><strong>{catalogError ? "Catalog unavailable" : "No games found"}</strong><span>{catalogError || "Try broader filters."}</span></div></td></tr>}</tbody></table></div><footer className="desk-footer"><span>Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}</span><div><button type="button" disabled={visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer></details></section>
-    {visualization ? <section className="visualization-panel" ref={visualizationRef}><header><div><p className="eyebrow"><span /> Database quick view</p><h2>{visualization.title}</h2><p>{visualization.subtitle}</p></div><div className="chart-tabs"><button className={visualization.type === "owners" ? "active" : ""} onClick={() => renderChart("owners")}>Owners</button><button className={visualization.type === "reviews" ? "active" : ""} onClick={() => renderChart("reviews")}>Reviews</button><button className={visualization.type === "price" ? "active" : ""} onClick={() => renderChart("price")}>Price</button></div></header><BarChart visualization={visualization} /><footer><span>Aggregated by D1 for the current filters</span><button type="button" onClick={() => setVisualization(null)}>Close quick view</button></footer></section> : null}</main>;
+    {studioActive ? <EngagementResourcePanel filters={engagementFilters} onFiltersChange={setEngagementFilters} /> : null}
+    {studioActive ? <details className="builder-resource-panel"><summary><span><strong>Prompt starters</strong><small>Optional ideas for composing a role-and-company-aware page</small></span><b aria-hidden="true">+</b></summary><section className="prompt-guide" aria-labelledby="prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP knows your confirmed role and company, so ask it to connect market signals to your company’s portfolio, priorities, and next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section></details> : null}
+    {studioActive ? <details className="builder-resource-panel catalog-resource-panel"><summary><span><strong>Catalog data</strong><small>{catalog ? `${total.toLocaleString()} matching games available to the page` : "Loading catalog"}</small></span><b aria-hidden="true">+</b></summary><div id="catalog-browser" className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label><button type="button" className="view-button" disabled={!catalog} onClick={() => renderChart("owners")}>Quick view <span>↗</span></button></div><div className="result-strip"><span>{catalog ? <><strong>{total.toLocaleString()}</strong> games match</> : catalogError || "Loading catalog…"}</span><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setPage(0); }}>Reset filters</button></div>
+    <div className="table-wrap"><table><thead><tr><th><button type="button" onClick={() => changeSort("title")}>Game <span>{sortIndicator("title")}</span></button></th><th><button type="button" onClick={() => changeSort("ownersMax")}>Owners <span>{sortIndicator("ownersMax")}</span></button></th><th><button type="button" onClick={() => changeSort("priceCents")}>Price <span>{sortIndicator("priceCents")}</span></button></th><th><button type="button" onClick={() => changeSort("positiveRatio")}>Reviews <span>{sortIndicator("positiveRatio")}</span></button></th><th><button type="button" onClick={() => changeSort("ccu")}>Players <span>{sortIndicator("ccu")}</span></button></th><th>Avg. playtime</th></tr></thead><tbody>{games.map((game) => { const accent = Math.abs(game.id) % coverMarks.length; return <tr key={game.id}><td><div className="game-cell"><span className={`cover cover-${accent}`} aria-hidden="true"><i>{coverMarks[accent]}</i><b>{game.title.split(" ").map((word) => word[0]).slice(0, 2).join("")}</b></span><span><strong>{game.title}</strong><small>{game.developer}{game.genres.length ? ` · ${game.genres.slice(0, 2).join(", ")}` : ""}</small></span></div></td><td><span className="genre-pill" title={game.owners}>{formatOwnerRange(game)}</span></td><td className="price-cell">{formatPrice(game.priceCents)}</td><td className="wishlist-cell">{formatPercent(game.positiveRatio)}</td><td className="wishlist-cell">{formatCompact(game.ccu)}</td><td><span className="status">{formatPlaytime(game.averageForever)}</span></td></tr>; })}{!games.length && <tr><td colSpan={6}><div className="empty-state"><strong>{catalogError ? "Catalog unavailable" : "No games found"}</strong><span>{catalogError || "Try broader filters."}</span></div></td></tr>}</tbody></table></div><footer className="desk-footer"><span>Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}</span><div><button type="button" disabled={visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer></details> : null}</section>
+    {studioActive && visualization ? <section className="visualization-panel" ref={visualizationRef}><header><div><p className="eyebrow"><span /> Catalog quick view</p><h2>{visualization.title}</h2><p>{visualization.subtitle}</p></div><div className="chart-tabs"><button className={visualization.type === "owners" ? "active" : ""} onClick={() => renderChart("owners")}>Owners</button><button className={visualization.type === "reviews" ? "active" : ""} onClick={() => renderChart("reviews")}>Reviews</button><button className={visualization.type === "price" ? "active" : ""} onClick={() => renderChart("price")}>Price</button></div></header><BarChart visualization={visualization} /><footer><span>Reflects the current catalog filters</span><button type="button" onClick={() => setVisualization(null)}>Close quick view</button></footer></section> : null}</main>;
 }

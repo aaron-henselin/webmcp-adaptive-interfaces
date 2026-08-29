@@ -224,7 +224,7 @@ async function writeGameChunk(output, games, dimensions) {
 async function buildImport(options, profile) {
   await mkdir(path.dirname(options.output), { recursive: true });
   const output = createWriteStream(options.output, { encoding: "utf8" });
-  await writeText(output, "DELETE FROM game_search;\nDELETE FROM game_languages;\nDELETE FROM game_tags;\nDELETE FROM game_categories;\nDELETE FROM game_genres;\nDELETE FROM game_publishers;\nDELETE FROM game_developers;\nDELETE FROM games;\nDELETE FROM languages;\nDELETE FROM tags;\nDELETE FROM categories;\nDELETE FROM genres;\nDELETE FROM publishers;\nDELETE FROM developers;\nDELETE FROM catalog_imports;\n");
+  await writeText(output, "DELETE FROM company_search;\nDELETE FROM companies;\nDELETE FROM game_search;\nDELETE FROM game_languages;\nDELETE FROM game_tags;\nDELETE FROM game_categories;\nDELETE FROM game_genres;\nDELETE FROM game_publishers;\nDELETE FROM game_developers;\nDELETE FROM games;\nDELETE FROM languages;\nDELETE FROM tags;\nDELETE FROM categories;\nDELETE FROM genres;\nDELETE FROM publishers;\nDELETE FROM developers;\nDELETE FROM catalog_imports;\n");
   await writeDimensions(output, profile.dimensions);
   let pending = [];
   await scan(options.input, options.maxRecords, async (game) => {
@@ -235,6 +235,29 @@ async function buildImport(options, profile) {
     }
   });
   await writeGameChunk(output, pending, profile.dimensions);
+  await writeText(output, [
+    "WITH company_names AS (",
+    "  SELECT name FROM developers",
+    "  UNION",
+    "  SELECT name FROM publishers",
+    ")",
+    "INSERT INTO companies (id, name, is_developer, is_publisher, game_count)",
+    "SELECT",
+    "  ROW_NUMBER() OVER (ORDER BY lower(company_names.name), company_names.name),",
+    "  company_names.name,",
+    "  EXISTS(SELECT 1 FROM developers WHERE developers.name = company_names.name),",
+    "  EXISTS(SELECT 1 FROM publishers WHERE publishers.name = company_names.name),",
+    "  (",
+    "    SELECT COUNT(*) FROM (",
+    "      SELECT game_developers.app_id FROM game_developers JOIN developers ON developers.id = game_developers.developer_id WHERE developers.name = company_names.name",
+    "      UNION",
+    "      SELECT game_publishers.app_id FROM game_publishers JOIN publishers ON publishers.id = game_publishers.publisher_id WHERE publishers.name = company_names.name",
+    "    ) company_games",
+    "  )",
+    "FROM company_names;",
+    "INSERT INTO company_search (company_id, name) SELECT id, name FROM companies;",
+    "",
+  ].join("\n"));
   await writeText(output, insert("catalog_imports", ["schema_version", "source_filename", "source_sha256", "imported_at", "record_count"], [[SCHEMA_VERSION, path.basename(options.input), profile.sha256, new Date().toISOString(), profile.count]]));
   await writeText(output, "PRAGMA optimize;\n");
   output.end();

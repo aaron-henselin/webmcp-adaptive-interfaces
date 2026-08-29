@@ -31,9 +31,11 @@ On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the 
 
 Steam Desk exposes two focused demos: the root route is a catalog grid with a saved-report library and one active report surface; `/builder` is the composable local page canvas.
 
-The report-library demo registers three WebMCP tools. The builder also registers `compose_page`, which adds HTML widgets or tabs, selects/configures/removes blocks, changes widths, and moves blocks semantically.
+The report-library demo registers three WebMCP tools and exposes only `steam_catalog`. The builder also exposes customer engagement tables around the Steam products and registers `search_game_companies` and `compose_page`. Company search returns ranked developer/publisher candidates from D1; the agent must present those candidates and wait for the user to select the closest match. `compose_page` adds HTML widgets or tabs, selects/configures/removes blocks, changes widths, and moves blocks semantically.
 
-- `describe_steam_catalog` returns database field metadata and the current page outline.
+- Demo 1: `describe_steam_catalog` returns Steam catalog field metadata.
+- Demo 2: `describe_page_data` returns both the Steam product catalog and customer engagement fields, current shared filters, and the page outline.
+- `search_game_companies` full-text searches catalog companies and returns candidates without choosing one for the user.
 - `create_report` executes a bounded database report and places it inline on the page.
 - `render_report` recreates an inline report as Markdown or a PNG.
 
@@ -43,10 +45,10 @@ Genre, tag, category, developer, publisher, and language reports use the analyti
 
 The ignored source archive is `data/steam-catalog/raw/games.json`. The runtime source of truth is D1; neither the 932 MB source file nor the full game catalog is downloaded by the browser.
 
-The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`. Generated import files live under the ignored `work/steam-catalog/` directory. See [docs/database.md](docs/database.md) for refresh, local loading, and query-boundary details.
+The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`. Generated import files live under the ignored `work/steam-catalog/` directory. Customer engagement sessions reference the existing Steam games as products and are available only to the page builder. See [docs/database.md](docs/database.md) for refresh, local loading, and query-boundary details. See [docs/page-composition.md](docs/page-composition.md) for the audience-confirmation and company-personalization contract.
 
 ## Repository notes
 
 - Local environment files, D1 state, generated imports, dependencies, and raw source data are ignored.
 - `.openai/hosting.json` declares the Sites-managed D1 binding.
-- The versioned page document is stored in browser local storage. Reports rerun against D1 inline. Demo 2 returns an explicit composition guide through WebMCP. Before creating a page it requires WebMCP to collect and locally store the user-confirmed first name and job role through setAudience; widgets then resolve safe greeting, name, role, date, page, and catalog bindings from that context.
+- The versioned page document is stored in browser local storage. Reports rerun against D1 inline. Demo 2 returns an explicit composition guide through WebMCP. Before creating a page it requires WebMCP to collect the user-confirmed first name and job role, search catalog companies, and locally store the exact company candidate selected by the user through `setAudience`. Widgets then resolve safe greeting, name, role, company, date, page, and catalog bindings from that context.

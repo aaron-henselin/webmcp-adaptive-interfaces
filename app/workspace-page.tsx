@@ -607,7 +607,6 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
   const pageHeader = !onboardingActive ? <div className={`builder-top-page-header ${editMode ? "edit-mode" : "view-mode"}`} ref={widgetPromptMenuRef}>
     <div className="builder-top-page-copy">
-      <p className="eyebrow"><span /> Step 3 of 3 · Compose</p>
       <h2 id="workspace-title">Your page</h2>
       <p>{"Approved canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + " at " + (workspace?.audience.company?.name ?? "")}</p>
     </div>

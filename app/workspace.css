@@ -59,7 +59,7 @@
 
 .builder-desk .page-canvas {
   min-height: calc(100vh - 206px);
-  padding: 48px clamp(16px, 2.4vw, 34px) clamp(18px, 2.4vw, 34px);
+  padding: 48px 0 clamp(18px, 2.4vw, 34px);
   gap: 16px;
   background-color: #e5ebee;
   background-image:

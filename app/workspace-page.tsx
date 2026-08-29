@@ -364,6 +364,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const [page, setPage] = useState(0);
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [showWidgetPrompts, setShowWidgetPrompts] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({});
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
@@ -565,15 +566,20 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   }, [commitWorkspace, onboardingStage, recordCount]);
 
   const applyUiOperations = useCallback((operations: WorkspaceOperation[]) => {
+    if (!editMode) return;
     const current = workspaceRef.current; if (!current) return;
     try { const applied = applyOperations(current, operations); if (applied.changes.length) commitWorkspace(applied.workspace, !operations.every((operation) => operation.op === "select")); }
     catch { /* Invalid manual moves leave the current layout unchanged. */ }
-  }, [commitWorkspace]);
+  }, [commitWorkspace, editMode]);
 
   const audienceReady = Boolean(workspace?.audience.firstName && workspace?.audience.jobRole && workspace?.audience.company);
   const compositionReady = workspace?.onboarding.stage === "composition_ready";
   const onboardingActive = Boolean(workspace && (!compositionReady || editingAudience));
   const studioActive = Boolean(workspace && compositionReady && !editingAudience);
+  const setPageEditing = (editing: boolean) => {
+    setEditMode(editing);
+    if (!editing) { setShowWidgetPrompts(false); setDraggedId(null); }
+  };
 
   const removeBlock = (id: string) => applyUiOperations([{ op: "remove", target: id }]);
   const cycleSpan = (id: string, current: BlockSpan) => applyUiOperations([{ op: "setSpan", target: id, span: SPANS[(SPANS.indexOf(current) + 1) % SPANS.length] }]);
@@ -583,12 +589,12 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const dropBefore = (target: string, event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id && id !== target) applyUiOperations([{ op: "move", target: id, before: target }]); };
   const dropIntoTab = (tabsId: string, tabId: string, event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, intoTab: { tabsId, tabId } }]); };
 
-  const renderLeaf = (block: LeafBlock, siblings: WorkspaceBlock[]) => <article key={block.id} className={`workspace-block span-${block.span} ${workspace?.selectedBlockId === block.id ? "is-selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectBlock(block.id); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropBefore(block.id, event)}><BlockControls block={block} selected={workspace?.selectedBlockId === block.id} onSelect={() => selectBlock(block.id)} onMove={(direction) => moveInContainer(siblings, block.id, direction)} onSpan={() => cycleSpan(block.id, block.span)} onRemove={() => removeBlock(block.id)} onDragStart={(event) => startDrag(block.id, event)} />{block.type === "report" ? <ReportWidget block={block} pageFilters={engagementFilters} /> : <HtmlWidget block={block} recordCount={recordCount ?? 0} firstName={workspace?.audience.firstName ?? ""} jobRole={workspace?.audience.jobRole ?? ""} company={workspace?.audience.company?.name ?? ""} />}</article>;
+  const renderLeaf = (block: LeafBlock, siblings: WorkspaceBlock[]) => <article key={block.id} className={`workspace-block span-${block.span} ${editMode && workspace?.selectedBlockId === block.id ? "is-selected" : ""}`} onClick={editMode ? (event) => { event.stopPropagation(); selectBlock(block.id); } : undefined} onDragOver={editMode ? (event) => event.preventDefault() : undefined} onDrop={editMode ? (event) => dropBefore(block.id, event) : undefined}>{editMode ? <BlockControls block={block} selected={workspace?.selectedBlockId === block.id} onSelect={() => selectBlock(block.id)} onMove={(direction) => moveInContainer(siblings, block.id, direction)} onSpan={() => cycleSpan(block.id, block.span)} onRemove={() => removeBlock(block.id)} onDragStart={(event) => startDrag(block.id, event)} /> : null}{block.type === "report" ? <ReportWidget block={block} pageFilters={engagementFilters} /> : <HtmlWidget block={block} recordCount={recordCount ?? 0} firstName={workspace?.audience.firstName ?? ""} jobRole={workspace?.audience.jobRole ?? ""} company={workspace?.audience.company?.name ?? ""} />}</article>;
 
   const renderTabs = (block: TabsBlock) => {
     const activeId = activeTabs[block.id] ?? block.tabs[0]?.id;
     const active = block.tabs.find((tab) => tab.id === activeId) ?? block.tabs[0];
-    return <article key={block.id} className={`workspace-block workspace-tabs span-${block.span} ${workspace?.selectedBlockId === block.id ? "is-selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectBlock(block.id); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropBefore(block.id, event)}><BlockControls block={block} selected={workspace?.selectedBlockId === block.id} onSelect={() => selectBlock(block.id)} onMove={(direction) => moveInContainer(workspace?.blocks ?? [], block.id, direction)} onSpan={() => cycleSpan(block.id, block.span)} onRemove={() => removeBlock(block.id)} onDragStart={(event) => startDrag(block.id, event)} /><header className="tabs-header"><div><p className="eyebrow"><span /> Page tabs</p><h3>{block.title}</h3></div><TabsNavigation blockId={block.id} title={block.title} tabs={block.tabs} activeId={active?.id} onSelect={(tabId) => setActiveTabs((value) => ({ ...value, [block.id]: tabId }))} /></header>{active ? <div className="tab-canvas" id={`tab-panel-${block.id}-${active.id}`} role="tabpanel" aria-labelledby={`tab-${block.id}-${active.id}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropIntoTab(block.id, active.id, event)}>{active.blocks.length ? active.blocks.map((item) => renderLeaf(item, active.blocks)) : <div className="tab-drop-zone">Drop a report or HTML widget into {active.label}</div>}</div> : null}</article>;
+    return <article key={block.id} className={`workspace-block workspace-tabs span-${block.span} ${editMode && workspace?.selectedBlockId === block.id ? "is-selected" : ""}`} onClick={editMode ? (event) => { event.stopPropagation(); selectBlock(block.id); } : undefined} onDragOver={editMode ? (event) => event.preventDefault() : undefined} onDrop={editMode ? (event) => dropBefore(block.id, event) : undefined}>{editMode ? <BlockControls block={block} selected={workspace?.selectedBlockId === block.id} onSelect={() => selectBlock(block.id)} onMove={(direction) => moveInContainer(workspace?.blocks ?? [], block.id, direction)} onSpan={() => cycleSpan(block.id, block.span)} onRemove={() => removeBlock(block.id)} onDragStart={(event) => startDrag(block.id, event)} /> : null}<header className="tabs-header"><div><p className="eyebrow"><span /> Page tabs</p><h3>{block.title}</h3></div><TabsNavigation blockId={block.id} title={block.title} tabs={block.tabs} activeId={active?.id} onSelect={(tabId) => setActiveTabs((value) => ({ ...value, [block.id]: tabId }))} /></header>{active ? <div className="tab-canvas" id={`tab-panel-${block.id}-${active.id}`} role="tabpanel" aria-labelledby={`tab-${block.id}-${active.id}`} onDragOver={editMode ? (event) => event.preventDefault() : undefined} onDrop={editMode ? (event) => dropIntoTab(block.id, active.id, event) : undefined}>{active.blocks.length ? active.blocks.map((item) => renderLeaf(item, active.blocks)) : <div className="tab-drop-zone">{editMode ? `Drop a report or HTML widget into ${active.label}` : `${active.label} has no widgets yet.`}</div>}</div> : null}</article>;
   };
 
   const games = catalog?.games ?? [];
@@ -600,7 +606,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const sortIndicator = (key: SortKey) => sortKey === key ? sortDirection === "asc" ? "↑" : "↓" : "↕";
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
   return <main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk page builder">
-    <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
+    <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""} ${editMode ? "edit-mode" : "view-mode"}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
       {!onboardingActive ? <header className="page-workspace-header" ref={widgetPromptMenuRef}>
         <div>
           <p className="eyebrow"><span /> Step 3 of 3 · Compose</p>
@@ -610,15 +616,19 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
         <div className="workspace-actions">
           <>
             <span>{workspace?.blocks.length ?? 0} blocks</span>
-            <button type="button" onClick={() => { setShowWidgetPrompts(false); setEditingAudience(true); }}>Edit audience</button>
-            <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
-            <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
-            <button type="button" className={`suggest-report add-widget${showWidgetPrompts ? " open" : ""}`} aria-label={showWidgetPrompts ? "Close widget suggestions" : "Add a widget"} aria-expanded={showWidgetPrompts} aria-controls="widget-prompt-guide" onClick={() => setShowWidgetPrompts((value) => !value)}>
-              Add a widget <span aria-hidden="true">+</span>
-            </button>
+            {editMode ? <>
+              <span className="edit-mode-status"><i aria-hidden="true" /> Editing</span>
+              <button type="button" onClick={() => { setShowWidgetPrompts(false); setEditingAudience(true); }}>Edit audience</button>
+              <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
+              <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
+              <button type="button" className={`suggest-report add-widget${showWidgetPrompts ? " open" : ""}`} aria-label={showWidgetPrompts ? "Close widget suggestions" : "Add a widget"} aria-expanded={showWidgetPrompts} aria-controls="widget-prompt-guide" onClick={() => setShowWidgetPrompts((value) => !value)}>
+                Add a widget <span aria-hidden="true">+</span>
+              </button>
+              <button type="button" className="edit-page-toggle is-active" onClick={() => setPageEditing(false)}>Done editing</button>
+            </> : <button type="button" className="edit-page-toggle" onClick={() => setPageEditing(true)}>Edit page</button>}
           </>
         </div>
-        {showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="widget-prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP knows your confirmed role and company, so ask it to connect market signals to your company’s portfolio, priorities, and next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
+        {editMode && showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><p className="eyebrow"><span /> Compose naturally</p><h2 id="widget-prompt-guide-title">Helpful sample prompts</h2></div><p>Describe the outcome—not the grid. WebMCP knows your confirmed role and company, so ask it to connect market signals to your company’s portfolio, priorities, and next action.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
       </header> : null}
       {workspace && onboardingActive ? (
         <AudienceOnboarding
@@ -628,7 +638,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
           onCancel={() => setEditingAudience(false)}
         />
       ) : workspace ? workspace.blocks.length ? (
-        <div className="page-canvas" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { if (event.currentTarget !== event.target) return; const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, toRootEnd: true }]); }}>
+        <div className={`page-canvas ${editMode ? "is-editing" : "is-viewing"}`} onDragOver={editMode ? (event) => event.preventDefault() : undefined} onDrop={editMode ? (event) => { if (event.currentTarget !== event.target) return; const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, toRootEnd: true }]); } : undefined}>
           {workspace.blocks.map((block) => block.type === "tabs" ? renderTabs(block) : renderLeaf(block, workspace.blocks))}
         </div>
       ) : (
@@ -640,7 +650,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
         <span>Stored in this browser</span>
         <span>{workspace?.audience.company ? workspace.audience.firstName + " · " + workspace.audience.jobRole + " · " + workspace.audience.company.name : "Audience setup required"}</span>
         <span>Catalog insights use the latest available data</span>
-        <span>Selected: {workspace ? findBlock(workspace, workspace.selectedBlockId)?.title ?? "none" : "none"}</span>
+        <span>{editMode ? `Selected: ${workspace ? findBlock(workspace, workspace.selectedBlockId)?.title ?? "none" : "none"}` : "View mode · editing locked"}</span>
       </footer> : null}
     </section>
     {studioActive ? <EngagementResourcePanel filters={engagementFilters} onFiltersChange={setEngagementFilters} /> : null}

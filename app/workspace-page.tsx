@@ -152,17 +152,17 @@ function BlockControls({ block, selected, onSelect, onMove, onSpan, onRemove, on
 function ReportWidget({ block, pageFilters }: { block: ReportBlock; pageFilters: EngagementSourceFilters }) {
   const [result, setResult] = useState<ReportResult | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
   const definitionKey = JSON.stringify([block.binding, block.presentation, block.binding.source.name === "customer_engagement" && block.binding.source.inheritPageFilters ? pageFilters : null]);
+  const [resolvedDefinitionKey, setResolvedDefinitionKey] = useState("");
+  const loading = resolvedDefinitionKey !== definitionKey;
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
     executeBuilderReport(block.binding, pageFilters, controller.signal).then((rows) => {
       if (block.presentation.mode === "chart" || block.presentation.mode === "mixed") setResult({ rows, figure: normalizePlotlyFigure(bindCatalogRowsToFigure(block.presentation.figure, block.binding, rows)) });
       else setResult({ rows });
       setError("");
-      setLoading(false);
-    }).catch((reason: unknown) => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : "Report unavailable."); setLoading(false); } });
+      setResolvedDefinitionKey(definitionKey);
+    }).catch((reason: unknown) => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : "Report unavailable."); setResolvedDefinitionKey(definitionKey); } });
     return () => controller.abort();
   // The serialized definition and inherited page filters are the report's semantic identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,7 +335,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
-  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [resolvedCatalogKey, setResolvedCatalogKey] = useState("");
   const [search, setSearch] = useState("");
   const [ownerBand, setOwnerBand] = useState("All owner ranges");
   const [priceBand, setPriceBand] = useState("All prices");
@@ -353,6 +353,8 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const engagementFiltersRef = useRef(engagementFilters);
   const undoRef = useRef<Workspace | null>(null);
   const workspaceSectionRef = useRef<HTMLElement>(null);
+  const catalogRequestKey = JSON.stringify([search, ownerBand, priceBand, sortKey, sortDirection, page]);
+  const catalogLoading = resolvedCatalogKey !== catalogRequestKey;
 
   const commitWorkspace = useCallback((next: Workspace, remember = true) => {
     if (remember && workspaceRef.current) { undoRef.current = structuredClone(workspaceRef.current); setCanUndo(true); }
@@ -370,14 +372,15 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
 
   useEffect(() => {
     const controller = new AbortController();
-    setCatalogLoading(true);
     const timer = window.setTimeout(() => {
       loadCatalogPage({ search, ownerBand, priceBand, sort: sortKey, direction: sortDirection, page, pageSize: PAGE_SIZE }, controller.signal)
-        .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setCatalogLoading(false); } })
-        .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Catalog unavailable."); setCatalogLoading(false); } });
+        .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setResolvedCatalogKey(catalogRequestKey); } })
+        .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Catalog unavailable."); setResolvedCatalogKey(catalogRequestKey); } });
     }, search ? 180 : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [search, ownerBand, priceBand, sortKey, sortDirection, page]);
+  // The serialized filters are the request identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogRequestKey]);
 
   const recordCount = catalog?.meta.recordCount;
   const sourceSha256 = catalog?.meta.sourceSha256;

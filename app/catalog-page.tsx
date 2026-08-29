@@ -130,7 +130,7 @@ function markdownReport(opened: OpenReport) {
 export default function CatalogPage({ onWebMcpStatusChange }: { onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
-  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [resolvedCatalogKey, setResolvedCatalogKey] = useState("");
   const [search, setSearch] = useState("");
   const [ownerBand, setOwnerBand] = useState("All owner ranges");
   const [priceBand, setPriceBand] = useState("All prices");
@@ -145,17 +145,20 @@ export default function CatalogPage({ onWebMcpStatusChange }: { onWebMcpStatusCh
   const reportsLoadedRef = useRef(false);
   const reportRef = useRef<HTMLElement>(null);
   const suggestionMenuRef = useRef<HTMLDivElement>(null);
+  const catalogRequestKey = JSON.stringify([search, ownerBand, priceBand, sortKey, sortDirection, page]);
+  const catalogLoading = resolvedCatalogKey !== catalogRequestKey;
 
   useEffect(() => {
     const controller = new AbortController();
-    setCatalogLoading(true);
     const timer = window.setTimeout(() => {
       loadCatalogPage({ search, ownerBand, priceBand, sort: sortKey, direction: sortDirection, page, pageSize: PAGE_SIZE }, controller.signal)
-        .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setCatalogLoading(false); } })
-        .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Catalog unavailable."); setCatalogLoading(false); } });
+        .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setResolvedCatalogKey(catalogRequestKey); } })
+        .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Catalog unavailable."); setResolvedCatalogKey(catalogRequestKey); } });
     }, search ? 180 : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [search, ownerBand, priceBand, sortKey, sortDirection, page]);
+  // The serialized filters are the request identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogRequestKey]);
 
   useEffect(() => {
     let reports: SavedReport[] = [];

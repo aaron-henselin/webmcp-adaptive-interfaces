@@ -8,6 +8,7 @@ import {
   type EngagementSourceFilters,
 } from "./engagement-analytics";
 import { loadEngagementDashboard, type EngagementDashboard, type EngagementMetric } from "./engagement-data";
+import { EngagementSkeleton } from "./loading-skeletons";
 
 type Props = {
   filters: EngagementSourceFilters;
@@ -36,13 +37,15 @@ function initials(firstName: string, lastName: string) {
 export default function EngagementResourcePanel({ filters, onFiltersChange }: Props) {
   const [dashboard, setDashboard] = useState<EngagementDashboard | null>(null);
   const [error, setError] = useState("");
+  const [resolvedDefinitionKey, setResolvedDefinitionKey] = useState("");
   const definitionKey = JSON.stringify(filters);
+  const loading = resolvedDefinitionKey !== definitionKey;
 
   useEffect(() => {
     const controller = new AbortController();
     loadEngagementDashboard(filters, controller.signal)
-      .then((value) => { setDashboard(value); setError(""); })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Customer engagement data is unavailable."); });
+      .then((value) => { if (!controller.signal.aborted) { setDashboard(value); setError(""); setResolvedDefinitionKey(definitionKey); } })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : "Customer engagement data is unavailable."); setResolvedDefinitionKey(definitionKey); } });
     return () => controller.abort();
   // The serialized filter set is the request identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,7 +65,7 @@ export default function EngagementResourcePanel({ filters, onFiltersChange }: Pr
   }, [dashboard?.devices, deviceTotal]);
 
   return <details className="builder-resource-panel engagement-resource-panel">
-    <summary><span><strong>Customer engagement</strong><small>{dashboard ? `${dashboard.metrics[1]?.value.toLocaleString() ?? 0} sessions · filters shared with page reports` : error || "Loading customer activity"}</small></span><b aria-hidden="true">+</b></summary>
+    <summary><span><strong>Customer engagement</strong><small>{loading ? "Updating customer activity" : dashboard ? `${dashboard.metrics[1]?.value.toLocaleString() ?? 0} sessions · filters shared with page reports` : error}</small></span><b aria-hidden="true">+</b></summary>
     <div className="engagement-dashboard">
       <aside className="engagement-filter-rail" aria-label="Customer engagement filters">
         <div className="engagement-filter-heading"><span>Live filters</span><button type="button" onClick={() => onFiltersChange({ ...filters, shops: [], suppliers: [], productCategories: [], brands: [], productClasses: [], sexes: [], customerTypes: [], devices: [] })}>Reset</button></div>
@@ -79,10 +82,9 @@ export default function EngagementResourcePanel({ filters, onFiltersChange }: Pr
         <SelectFilter label="Type" value={filters.customerTypes[0] ?? ""} options={CUSTOMER_TYPES} onChange={(value) => updateList("customerTypes", value)} />
         <SelectFilter label="Device" value={filters.devices[0] ?? ""} options={DEVICE_TYPES} onChange={(value) => updateList("devices", value)} />
       </aside>
-      <section className="engagement-surface" aria-label="Customer engagement overview">
-        {error ? <div className="engagement-error"><strong>Customer engagement data is unavailable</strong><span>{error}</span></div> : null}
-        {!dashboard && !error ? <div className="engagement-loading">Loading engagement overview…</div> : null}
-        {dashboard ? <>
+      <section className="engagement-surface" aria-label="Customer engagement overview" aria-busy={loading}>
+        {loading ? <EngagementSkeleton /> : error ? <div className="engagement-error"><strong>Customer engagement data is unavailable</strong><span>{error}</span></div> : null}
+        {!loading && dashboard ? <>
           <div className="engagement-kpis">
             {dashboard.metrics.map((metric) => <article key={metric.key}><span>{metric.label}</span><strong>{formatMetric(metric)}</strong><small className={metric.change < 0 ? "negative" : ""}>{metric.change < 0 ? "↓" : "↑"} {Math.abs(metric.change).toLocaleString(undefined, { maximumFractionDigits: 1 })}% <i>vs prior period</i></small></article>)}
           </div>

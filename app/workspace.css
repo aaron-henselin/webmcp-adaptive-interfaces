@@ -311,6 +311,13 @@
 .workspace-block .plotly-stage { min-height: 320px; }
 .workspace-block .plotly-canvas { min-height: 300px; }
 .workspace-block .metric-answer { min-height: 230px; padding: 38px; }
+.report-skeleton { min-height: 230px; padding: 28px 24px; display: grid; grid-template-columns: minmax(160px, .7fr) minmax(240px, 1.3fr); align-items: center; gap: 28px; background: linear-gradient(135deg, #fbfcfd, white); }
+.report-skeleton-copy { min-width: 0; }
+.report-skeleton-visual { height: 166px; padding: 18px 16px 0; display: flex; align-items: flex-end; gap: 7px; border-left: 1px solid #e5eaed; border-bottom: 1px solid #e5eaed; }
+.report-skeleton-visual > i { min-width: 8px; height: 42%; flex: 1; border-radius: 4px 4px 0 0; }
+.report-skeleton-visual > i:nth-child(2n) { height: 68%; }
+.report-skeleton-visual > i:nth-child(3n) { height: 84%; }
+.report-skeleton-visual > i:nth-child(5n) { height: 55%; }
 .workspace-block.span-half .metric-answer,
 .workspace-block.span-third .metric-answer,
 .workspace-block.span-quarter .metric-answer { display: flex; align-items: flex-start; flex-direction: column; background-image: none; }
@@ -377,6 +384,15 @@
   border-color: var(--steam);
 }
 .engagement-surface { min-width: 0; padding: 18px; }
+.engagement-skeleton { min-height: 560px; }
+.engagement-skeleton-kpis article { justify-content: flex-start; }
+.engagement-skeleton-grid .engagement-card > header { display: block; }
+.engagement-skeleton-grid .engagement-card > header > div { width: 100%; }
+.engagement-skeleton-chart { height: 218px; padding: 34px 18px 18px; display: flex; align-items: flex-end; gap: 6px; background-image: repeating-linear-gradient(to bottom, #edf1f3 0 1px, transparent 1px 47px); }
+.engagement-skeleton-chart > i { min-width: 4px; height: 40%; flex: 1; border-radius: 4px 4px 0 0; }
+.engagement-skeleton-chart > i:nth-child(2n) { height: 66%; }
+.engagement-skeleton-chart > i:nth-child(3n) { height: 82%; }
+.engagement-skeleton-chart > i:nth-child(5n) { height: 54%; }
 .engagement-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

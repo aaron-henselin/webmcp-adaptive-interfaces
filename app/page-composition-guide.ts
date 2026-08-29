@@ -10,6 +10,7 @@ export const PAGE_COMPOSITION_GUIDE = {
   decisionOrder: [
     "Complete the agent-led name, company, and role survey, resolve the company, and save the audience.",
     "Propose the user's likely job-to-be-done, single most important action or answer, and the smallest useful page; wait for approval before composition.",
+    "Choose a concise page title that communicates the approved purpose, and set it before adding page blocks.",
     "Choose the smallest number of blocks that creates a clear reading order.",
     "Select each block's width from its information density and priority; do not ask the user to choose widths.",
     "For briefings, home pages, and overviews, add a restrained personalized welcome and one clear, non-clickable next-step prompt.",
@@ -54,6 +55,7 @@ export const PAGE_COMPOSITION_GUIDE = {
     "The stored first name and job role were confirmed by the user before page creation.",
     "The stored company is an exact or high-confidence typo-resolved catalog match; ambiguous matches were selected by the user.",
     "The approved proposal is stored before the first page mutation.",
+    "The composition sets a concise page title that appears in the builder header, browser tab, and page.title binding.",
     "The page has one obvious starting point and one primary next action.",
     "Width reflects content density, not arbitrary symmetry.",
     "Personalization uses company context where it improves relevance and remains restrained.",

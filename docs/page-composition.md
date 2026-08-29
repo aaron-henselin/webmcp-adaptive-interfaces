@@ -11,9 +11,12 @@ The builder personalizes pages from three locally stored, user-confirmed audienc
 5. After the audience is saved, propose what page would be most useful. State one purpose, the strongest role-and-company-relevant signals, the ordered sections, and one primary action.
 6. Wait for the user to approve or revise the proposal.
 7. Call the temporarily registered `request_page_composition` tool with the approved proposal and `userConfirmed: true`.
-8. Use `compose_page` and `create_report` to build the approved page.
+8. Begin composition with `compose_page` operation `setPageTitle`, using a concise title that reflects the approved purpose.
+9. Use `compose_page` and `create_report` to build the approved page.
 
 The workspace persists `audience_required`, `proposal_required`, or `composition_ready`. `compose_page` inspection remains available throughout, but page mutations and report creation reject requests until the approved proposal has moved the workspace to `composition_ready`.
+
+The workspace also persists `pageTitle`. Set it through `compose_page` with `{ "op": "setPageTitle", "title": "…" }` before adding blocks. The same value appears in the builder header, becomes the browser tab title, and resolves the `{{page.title}}` HTML binding. Existing saved pages without a title migrate to “Untitled page.”
 
 The company search index unifies developer and publisher names from the Steam catalog. A selected or corrected company is personalization context, not identity verification and not evidence of access to private company data.
 

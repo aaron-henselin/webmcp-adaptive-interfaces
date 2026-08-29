@@ -169,26 +169,15 @@
 }
 .builder-top-page-copy {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 3px 12px;
 }
 .builder-top-page-copy h2 {
   margin: 0;
+  overflow: hidden;
   color: var(--ink);
   font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
   font-size: 18px;
   font-weight: 630;
   letter-spacing: -.04em;
-  white-space: nowrap;
-}
-.builder-top-page-copy > p:last-child {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -682,7 +671,6 @@
   .workspace-actions { width: 100%; flex-wrap: wrap; }
   .builder-top-page-header { padding: 8px; align-items: flex-start; flex-direction: column; gap: 8px; }
   .builder-top-page-copy { width: 100%; }
-  .builder-top-page-copy > p:last-child { display: none; }
   .builder-top-page-header .workspace-actions { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   .span-half, .span-third, .span-quarter { grid-column: span 12; }
   .workspace-report-header { align-items: flex-start; flex-direction: column; }

@@ -36,10 +36,11 @@ export type AudienceContext = { firstName: string; jobRole: string; company: Aud
 export type OnboardingStage = "audience_required" | "proposal_required" | "composition_ready";
 export type PageProposal = { summary: string; sections: string[]; primaryAction: string };
 export type OnboardingState = { stage: OnboardingStage; proposal: PageProposal | null };
-export type Workspace = { schemaVersion: 2; updatedAt: string; selectedBlockId: string | null; audience: AudienceContext; onboarding: OnboardingState; blocks: WorkspaceBlock[] };
+export type Workspace = { schemaVersion: 2; updatedAt: string; pageTitle: string; selectedBlockId: string | null; audience: AudienceContext; onboarding: OnboardingState; blocks: WorkspaceBlock[] };
 
 export type WorkspaceOperation =
   | { op: "inspect" }
+  | { op: "setPageTitle"; title: string }
   | { op: "select"; target: string }
   | { op: "addHtml"; title?: string; markup: string; span?: BlockSpan; after?: string }
   | { op: "addTabs"; title?: string; labels: string[]; span?: BlockSpan; after?: string }
@@ -151,7 +152,7 @@ function totalBlocks(blocks: WorkspaceBlock[]) {
 }
 
 export function emptyWorkspace(): Workspace {
-  return { schemaVersion: 2, updatedAt: new Date().toISOString(), selectedBlockId: null, audience: { firstName: "", jobRole: "", company: null }, onboarding: { stage: "audience_required", proposal: null }, blocks: [] };
+  return { schemaVersion: 2, updatedAt: new Date().toISOString(), pageTitle: "Untitled page", selectedBlockId: null, audience: { firstName: "", jobRole: "", company: null }, onboarding: { stage: "audience_required", proposal: null }, blocks: [] };
 }
 
 export function normalizeWorkspace(value: unknown): Workspace | null {
@@ -183,7 +184,7 @@ export function normalizeWorkspace(value: unknown): Workspace | null {
     : blocks.length || requestedStage === "composition_ready" && proposal
       ? "composition_ready"
       : "proposal_required";
-  return { schemaVersion: 2, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), selectedBlockId: selected, audience, onboarding: { stage, proposal }, blocks };
+  return { schemaVersion: 2, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), pageTitle: cleanText(value.pageTitle, "Untitled page", 100), selectedBlockId: selected, audience, onboarding: { stage, proposal }, blocks };
 }
 
 export function loadWorkspace(): Workspace {
@@ -255,6 +256,13 @@ export function applyOperations(current: Workspace, operations: WorkspaceOperati
   const changes: string[] = [];
   for (const operation of operations.slice(0, 16)) {
     if (operation.op === "inspect") continue;
+    if (operation.op === "setPageTitle") {
+      const title = cleanText(operation.title, "", 100);
+      if (!title) throw new Error("setPageTitle requires a title.");
+      workspace.pageTitle = title;
+      changes.push(`Set the page title to “${title}”.`);
+      continue;
+    }
     if (operation.op === "reset") { workspace.blocks = []; workspace.selectedBlockId = null; changes.push("Reset the page."); continue; }
     if (operation.op === "undo") continue;
     if (operation.op === "addHtml") {

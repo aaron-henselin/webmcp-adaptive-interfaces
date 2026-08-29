@@ -19,10 +19,7 @@ import {
   formatSnapshotDate,
   loadSteamSpySnapshot,
   OWNER_BANDS,
-  priceBand,
   PRICE_BANDS,
-  reviewBand,
-  REVIEW_BANDS,
   type SteamSpyGame,
   type SteamSpySnapshot,
 } from "./steamspy-data";
@@ -31,9 +28,6 @@ import { createReportPresentationSchema, REPORT_MODE_CATALOG, reportPresentation
 
 type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
 type SortDirection = "asc" | "desc";
-type ChartType = "owners" | "reviews" | "price";
-type ChartItem = { label: string; value: number };
-type Visualization = { type: ChartType; title: string; subtitle: string; items: ChartItem[] };
 type ReportMode = "metric" | "table" | "chart" | "narrative" | "mixed";
 type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes";
 type MetricSpec = { valueField: string; label: string; format: ValueFormat; context: string };
@@ -168,31 +162,6 @@ function sortGames(games: SteamSpyGame[], key: SortKey, direction: SortDirection
 
 function filterGames(games: SteamSpyGame[], search: string, ownerBand: string, selectedPriceBand: string) {
   return filterSteamSpyGames(games, { query: search, ownerBand, priceBand: selectedPriceBand });
-}
-
-function makeVisualization(type: ChartType, games: SteamSpyGame[]): Visualization {
-  if (type === "price") {
-    return {
-      type,
-      title: "Price bands",
-      subtitle: `Current listed prices for ${games.length.toLocaleString()} matching games`,
-      items: PRICE_BANDS.map((label) => ({ label, value: games.filter((game) => priceBand(game) === label).length })),
-    };
-  }
-  if (type === "reviews") {
-    return {
-      type,
-      title: "Review sentiment",
-      subtitle: `SteamSpy review ratios for ${games.length.toLocaleString()} matching games`,
-      items: REVIEW_BANDS.map((label) => ({ label: label.replace(" positive", ""), value: games.filter((game) => reviewBand(game) === label).length })),
-    };
-  }
-  return {
-    type,
-    title: "Estimated ownership",
-    subtitle: `SteamSpy owner ranges for ${games.length.toLocaleString()} matching games`,
-    items: OWNER_BANDS.map((band) => ({ label: ownerBandLabels.get(band) ?? band, value: games.filter((game) => game.owners === band).length })).filter((item) => item.value > 0),
-  };
 }
 
 function savedAtLabel(value: string) {
@@ -438,21 +407,6 @@ function renderReportForChat(opened: OpenReport) {
   return sections.join("\n\n");
 }
 
-function BarChart({ visualization }: { visualization: Visualization }) {
-  const max = Math.max(...visualization.items.map((item) => item.value), 1);
-  return (
-    <div className={`chart chart-${visualization.type}`} role="img" aria-label={`${visualization.title}. ${visualization.items.map((item) => `${item.label}: ${item.value}`).join(", ")}`}>
-      {visualization.items.map((item) => (
-        <div className="bar-column" key={item.label}>
-          <span className="bar-value">{item.value.toLocaleString()}</span>
-          <div className="bar-rail"><span style={{ height: `${Math.max(5, (item.value / max) * 100)}%` }} /></div>
-          <span className="bar-label">{item.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function MetricAnswer({ metric, rows }: { metric: MetricSpec; rows: Record<string, unknown>[] }) {
   const value = rows[0]?.[metric.valueField];
   return (
@@ -498,13 +452,11 @@ export default function SteamSpyPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(0);
   const [webMcpStatus, setWebMcpStatus] = useState<"checking" | "connected" | "preview">("checking");
-  const [visualization, setVisualization] = useState<Visualization | null>(null);
   const [openReport, setOpenReport] = useState<OpenReport | null>(null);
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [savedReportsReady, setSavedReportsReady] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const savedReportsRef = useRef<SavedReport[]>([]);
-  const visualizationRef = useRef<HTMLElement>(null);
   const reportRef = useRef<HTMLElement>(null);
   const copiedPromptTimerRef = useRef<number | null>(null);
   const games = snapshot?.games ?? EMPTY_GAMES;
@@ -672,7 +624,7 @@ export default function SteamSpyPage() {
       },
       {
         name: "create_report",
-        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Executes and saves the complete report, optionally opens it in Steam Desk, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, Quick View, or Saved Reports through the page UI.",
+        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Executes and saves the complete report, optionally opens it in Steam Desk, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, or Saved Reports through the page UI.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -800,11 +752,6 @@ export default function SteamSpyPage() {
     }
   }
 
-  function renderChart(type: ChartType = "owners") {
-    setVisualization(makeVisualization(type, filtered));
-    window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
-  }
-
   async function openSavedReport(report: SavedReport) {
     setOpenReport(await runSavedReport(report, games));
     window.setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
@@ -888,7 +835,6 @@ export default function SteamSpyPage() {
           <label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!snapshot} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, publishers" /></label>
           <label className="select-field"><span className="sr-only">Owner range</span><select disabled={!snapshot} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label>
           <label className="select-field"><span className="sr-only">Price band</span><select disabled={!snapshot} value={selectedPriceBand} onChange={(event) => { setSelectedPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <button type="button" className="view-button" disabled={!snapshot} onClick={() => renderChart("owners")}>Quick view <span>↗</span></button>
         </div>
 
         <div className="result-strip"><span>{snapshot ? <><strong>{filtered.length.toLocaleString()}</strong> games match · {snapshot.pageCount.toLocaleString()} cached pages</> : snapshotError || "Loading cached snapshot…"}</span><button type="button" disabled={!snapshot} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setSelectedPriceBand("All prices"); }}>Reset filters</button></div>
@@ -933,13 +879,6 @@ export default function SteamSpyPage() {
           </header>
           <ReportBody opened={openReport} />
           <footer><span>Recreated from the saved snapshot definition</span><button type="button" onClick={() => setOpenReport(null)}>Close report</button></footer>
-        </section>
-      )}
-      {visualization && (
-        <section className="visualization-panel" ref={visualizationRef} aria-live="polite">
-          <header><div><p className="eyebrow"><span /> Browser quick view</p><h2>{visualization.title}</h2><p>{visualization.subtitle}</p></div><div className="chart-tabs" aria-label="Quick view type"><button className={visualization.type === "owners" ? "active" : ""} onClick={() => renderChart("owners")}>Owners</button><button className={visualization.type === "reviews" ? "active" : ""} onClick={() => renderChart("reviews")}>Reviews</button><button className={visualization.type === "price" ? "active" : ""} onClick={() => renderChart("price")}>Price</button></div></header>
-          <BarChart visualization={visualization} />
-          <footer><span>A temporary view of the current table filters</span><button type="button" onClick={() => setVisualization(null)}>Close quick view</button></footer>
         </section>
       )}
     </main>

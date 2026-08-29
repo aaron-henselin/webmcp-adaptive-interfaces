@@ -1,6 +1,7 @@
 import "./demo-switcher.css";
 
-type DemoSwitcherProps = { active: "reports" | "builder" };
+export type WebMcpStatus = "checking" | "connected" | "preview";
+type DemoSwitcherProps = { active: "reports" | "builder"; status: WebMcpStatus };
 
 const demos = [
   {
@@ -19,12 +20,12 @@ const demos = [
   },
 ];
 
-export default function DemoSwitcher({ active }: DemoSwitcherProps) {
+export default function DemoSwitcher({ active, status }: DemoSwitcherProps) {
   return <nav className="demo-switcher" aria-label="Steam Desk demos">
     <div className="demo-switcher-inner">
       <div className="demo-switcher-brand">
         <span>Steam Desk</span>
-        <small>WebMCP demos</small>
+        <small className={`demo-webmcp-status webmcp-status-${status}`}>{status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "Checking WebMCP"}</small>
       </div>
       <div className="demo-switcher-options">
         {demos.map((demo) => <a

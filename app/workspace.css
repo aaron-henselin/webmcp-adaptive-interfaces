@@ -151,11 +151,6 @@
 .catalog-resource-panel { margin-bottom: 18px; }
 .catalog-resource-panel > .toolbar { border-top: 0; }
 
-.builder-site-shell > .visualization-panel {
-  width: calc(100% - 24px);
-  margin: 12px auto 0;
-}
-
 .page-workspace-header {
   min-height: 112px;
   padding: 22px 24px 20px;
@@ -534,10 +529,29 @@
 .html-widget a:hover { background: var(--steam); }
 .html-widget ul, .html-widget ol { margin: 10px 0; padding-left: 20px; }
 
-.tabs-header { align-items: center; }
-.tabs-header [role="tablist"] { display: flex; gap: 4px; padding: 4px; border: 1px solid #d9e1e5; border-radius: 9px; background: #f4f7f8; }
-.tabs-header [role="tab"] { padding: 7px 10px; border: 0; border-radius: 6px; color: #67757f; background: transparent; cursor: pointer; font-size: 10px; }
-.tabs-header [role="tab"].active { color: white; background: var(--ink); }
+.tabs-header { display: grid; align-items: stretch; grid-template-columns: minmax(0, 1fr); }
+.tabs-navigation { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; }
+.tabs-navigation:not(.has-overflow) [role="tablist"] { grid-column: 1 / -1; }
+.tabs-navigation [role="tablist"] { min-width: 0; padding: 4px; display: flex; gap: 4px; overflow: hidden; border: 1px solid #d9e1e5; border-radius: 9px; background: #f4f7f8; }
+.tabs-tab,
+.tabs-more-button { min-height: 31px; border: 0; border-radius: 6px; font-family: inherit; font-size: 10px; white-space: nowrap; }
+.tabs-tab { max-width: min(180px, 42vw); padding: 7px 10px; overflow: hidden; flex: 0 0 auto; color: #67757f; background: transparent; text-overflow: ellipsis; cursor: pointer; }
+.tabs-tab[aria-selected="true"] { color: white; background: var(--ink); }
+.tabs-more-button { padding: 7px 9px 7px 11px; display: inline-flex; align-items: center; gap: 6px; color: #40515c; background: #e6edf0; box-shadow: -11px 0 16px -15px rgba(27, 46, 57, .65); cursor: pointer; }
+.tabs-more-button > span { min-width: 17px; height: 17px; padding-inline: 4px; display: inline-grid; place-items: center; border-radius: 99px; color: #f7fafb; background: #71828c; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; }
+.tabs-more-button > b { font-size: 10px; font-weight: 700; transition: transform 140ms ease; }
+.tabs-more-button[aria-expanded="true"] { color: white; background: var(--ink); }
+.tabs-more-button[aria-expanded="true"] > b { transform: rotate(180deg); }
+.tabs-tab:focus-visible,
+.tabs-more-button:focus-visible,
+.tabs-more-menu button:focus-visible { outline: 2px solid var(--steam); outline-offset: 2px; }
+.tabs-more-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: min(230px, calc(100vw - 60px)); padding: 5px; display: grid; gap: 2px; border: 1px solid #ced9de; border-radius: 9px; background: white; box-shadow: 0 14px 34px rgba(27, 46, 57, .18); }
+.tabs-more-menu button { min-width: 0; padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 0; border-radius: 6px; color: #40515c; background: transparent; cursor: pointer; font-family: inherit; font-size: 10px; text-align: left; }
+.tabs-more-menu button:hover,
+.tabs-more-menu button:focus-visible { color: var(--ink); background: #edf3f5; }
+.tabs-more-menu button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabs-more-menu button b { color: var(--steam); }
+.tabs-measure { position: absolute; width: max-content; padding: 4px; display: flex; gap: 4px; visibility: hidden; pointer-events: none; }
 .tab-canvas { min-height: 190px; padding: 12px; background: #f3f6f7; }
 .tab-canvas .workspace-block { box-shadow: none; }
 .tab-drop-zone,
@@ -574,8 +588,7 @@
   .page-workspace-header { align-items: flex-start; flex-direction: column; }
   .workspace-actions { width: 100%; flex-wrap: wrap; }
   .span-half, .span-third, .span-quarter { grid-column: span 12; }
-  .workspace-report-header, .tabs-header { align-items: flex-start; flex-direction: column; }
-  .tabs-header [role="tablist"] { max-width: 100%; overflow-x: auto; }
+  .workspace-report-header { align-items: flex-start; flex-direction: column; }
   .page-workspace-footer { padding-block: 9px; align-items: flex-start; flex-direction: column; }
   .builder-site-shell { padding: 8px; }
   .builder-desk > .page-workspace { margin-inline: 0; }

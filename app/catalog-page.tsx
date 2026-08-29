@@ -5,13 +5,12 @@ import { CATALOG_ANALYTICS_BINDING_SCHEMA, CATALOG_FIELD_CATALOG, normalizeCatal
 import { executeCatalogReport, loadCatalogPage, type CatalogPage } from "./catalog-data";
 import { bindCatalogRowsToFigure } from "./catalog-visualization";
 import { createReportPresentationSchema, REPORT_MODE_CATALOG, REPORT_PRESENTATION_DESCRIPTION, reportPresentationShapeError } from "./report-presentation-schema";
+import type { WebMcpStatus } from "./demo-switcher";
 import { formatCompact, formatOwnerRange, formatPercent, formatPlaytime, formatPrice, formatSnapshotDate } from "./steamspy-data";
 import { normalizePlotlyFigure, PlotlyCanvas, PLOTLY_TRACE_TYPES, renderPlotlyFigureToPng, type PlotlyFigure } from "./plotly-visualization";
 
 type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
 type SortDirection = "asc" | "desc";
-type ChartType = "owners" | "reviews" | "price";
-type Visualization = { type: ChartType; title: string; subtitle: string; items: Array<{ label: string; value: number }> };
 type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes";
 type MetricSpec = { valueField: string; label: string; format: ValueFormat; context: string };
 type TableColumn = { field: string; label: string; format: ValueFormat };
@@ -35,9 +34,9 @@ const ownerBandLabels = new Map(OWNER_BANDS.map((band) => {
 }));
 
 const SAMPLE_PROMPTS = [
-  { mode: "Metric", prompt: "What is the median price of games in this catalog? Save the answer as a report." },
-  { mode: "Table", prompt: "Create a report listing the 10 games with the highest peak player count." },
-  { mode: "Chart", prompt: "Chart the number of games in each genre and save it as a report." },
+  { mode: "Metric", prompt: "Show me the median price of games in this catalog." },
+  { mode: "Table", prompt: "Show me the 10 games with the highest peak player count." },
+  { mode: "Chart", prompt: "Show me how many games are in each genre." },
   { mode: "Mixed", prompt: "Show the mean review score for RPG-tagged games with a review-band chart." },
 ] as const;
 
@@ -94,16 +93,6 @@ function formatValue(value: unknown, format: ValueFormat) {
   return format === "integer" ? Math.round(number).toLocaleString() : number.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
-function makeVisualization(type: ChartType, catalog: CatalogPage): Visualization {
-  const titles = { owners: "Estimated ownership", reviews: "Review sentiment", price: "Price bands" } as const;
-  return { type, title: titles[type], subtitle: `Summary of ${catalog.query.total.toLocaleString()} matching games`, items: catalog.distributions[type] };
-}
-
-function BarChart({ visualization }: { visualization: Visualization }) {
-  const maximum = Math.max(1, ...visualization.items.map((item) => item.value));
-  return <div className="chart">{visualization.items.map((item) => <div className="bar-group" key={item.label}><span>{formatCompact(item.value)}</span><div className="bar-column" style={{ height: `${Math.max(3, item.value / maximum * 100)}%` }} /><small>{item.label}</small></div>)}</div>;
-}
-
 function ReportBody({ opened }: { opened: OpenReport }) {
   const presentation = opened.report.presentation;
   if (presentation.mode === "metric" || presentation.mode === "mixed") {
@@ -137,7 +126,7 @@ function markdownReport(opened: OpenReport) {
   return lines.filter(Boolean).join("\n");
 }
 
-export default function CatalogPage() {
+export default function CatalogPage({ onWebMcpStatusChange }: { onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
   const [search, setSearch] = useState("");
@@ -146,15 +135,12 @@ export default function CatalogPage() {
   const [sortKey, setSortKey] = useState<SortKey>("ownersMax");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(0);
-  const [, setWebMcpStatus] = useState<"checking" | "connected" | "preview">("checking");
-  const [visualization, setVisualization] = useState<Visualization | null>(null);
   const [openReport, setOpenReport] = useState<OpenReport | null>(null);
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [showPromptGuide, setShowPromptGuide] = useState(false);
   const savedReportsRef = useRef<SavedReport[]>([]);
   const reportsLoadedRef = useRef(false);
-  const visualizationRef = useRef<HTMLElement>(null);
   const reportRef = useRef<HTMLElement>(null);
   const suggestionMenuRef = useRef<HTMLDivElement>(null);
 
@@ -208,7 +194,7 @@ export default function CatalogPage() {
   useEffect(() => {
     if (catalogRecordCount === undefined) return;
     const context = document.modelContext ?? navigator.modelContext;
-    if (!context) { queueMicrotask(() => setWebMcpStatus("preview")); return; }
+    if (!context) { queueMicrotask(() => onWebMcpStatusChange("preview")); return; }
     const controller = new AbortController();
 
     const createReport = async (input: Record<string, unknown>) => {
@@ -235,13 +221,15 @@ export default function CatalogPage() {
     };
 
     const tools = [
-      { name: "describe_steam_catalog", description: "Describe the database-backed Steam catalog fields, filters, analytics operations, and presentation contract. Use before creating a report when field meanings or genre/tag expansion are unclear.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => ({ content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable catalog fields.` }], structuredContent: { schemaVersion: "steam-desk.datasource/v2", source: { name: "steam_catalog", label: "Steam catalog database", recordCount: catalogRecordCount }, fields: CATALOG_FIELD_CATALOG, reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Use explode with genres, tags, categories, developers, publishers, or languages before grouping by an individual value.", "For tags, explode also provides tagWeight.", "Report results are capped at 2,000 rows and execute in the database.", REPORT_PRESENTATION_DESCRIPTION] } }) },
-      { name: "create_report", description: "Analyze the database-backed Steam catalog and save exactly one presentation: metric, table, chart, narrative, or mixed. Mixed means one headline metric plus one supporting chart; it never includes a table. Create separate reports when both a chart and table are needed. Returns only a compact receipt.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const opened = await createReport(input); return { content: [{ type: "text", text: `Created and saved “${opened.report.title}”.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v3", ok: true, created: true, saved: true, browser: { opened: input.openInBrowser !== false }, report: { id: opened.report.id, title: opened.report.title, mode: opened.report.presentation.mode, rowCount: opened.rows.length } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }], structuredContent: { ok: false, retryable: false } }; } } },
+      { name: "describe_steam_catalog", description: "Describe the database-backed Steam catalog fields, filters, analytics operations, and presentation contract. Use before creating a report when field meanings or genre/tag expansion are unclear.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => ({ content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable catalog fields.` }], structuredContent: { schemaVersion: "steam-desk.datasource/v2", source: { name: "steam_catalog", label: "Steam catalog database", recordCount: catalogRecordCount }, fields: CATALOG_FIELD_CATALOG, reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Route every data-derived request through create_report, even when it is phrased as a natural question and never mentions reports or saving.", "Use explode with genres, tags, categories, developers, publishers, or languages before grouping by an individual value.", "For tags, explode also provides tagWeight.", "Report results are capped at 2,000 rows and execute in the database.", REPORT_PRESENTATION_DESCRIPTION] } }) },
+      { name: "create_report", description: "Use for every request that asks for an answer, calculation, analysis, ranking, comparison, summary, table, chart, or narrative from Steam catalog data, even when the user does not say report or save. This is the reporting interface for all data-derived answers. Save exactly one presentation: metric, table, chart, narrative, or mixed. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Returns only a compact receipt.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const opened = await createReport(input); return { content: [{ type: "text", text: `Created and saved “${opened.report.title}”.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v3", ok: true, created: true, saved: true, browser: { opened: input.openInBrowser !== false }, report: { id: opened.report.id, title: opened.report.title, mode: opened.report.presentation.mode, rowCount: opened.rows.length } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }], structuredContent: { ok: false, retryable: false } }; } } },
       { name: "render_report", description: "Render an existing saved report as bounded Markdown or, for chart reports, a PNG.", inputSchema: { type: "object", additionalProperties: false, properties: { reportId: { type: "string", minLength: 1, maxLength: 128 }, renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto" } }, required: ["reportId"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const report = savedReportsRef.current.find((item) => item.id === input.reportId); if (!report) throw new Error("Saved report not found."); const opened = await runReport(report); const imageMode = input.renderMode === "image" || input.renderMode !== "markdown" && Boolean(opened.figure); if (imageMode) { if (!opened.figure) throw new Error("Image rendering is available only for chart reports."); return { content: [{ type: "text", text: `Rendered “${report.title}” as a PNG.` }, { type: "image", data: await renderPlotlyFigureToPng(opened.figure), mimeType: "image/png" }], structuredContent: { ok: true, rendered: true, report: { id: report.id, title: report.title } } }; } return { content: [{ type: "text", text: markdownReport(opened) }], structuredContent: { ok: true, rendered: true, report: { id: report.id, title: report.title } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report rendering failed." }] }; } } },
     ];
-    Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal }))).then(() => setWebMcpStatus("connected")).catch(() => setWebMcpStatus("preview"));
+    Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal })))
+      .then(() => { if (!controller.signal.aborted) onWebMcpStatusChange("connected"); })
+      .catch(() => { if (!controller.signal.aborted) onWebMcpStatusChange("preview"); });
     return () => controller.abort();
-  }, [catalogRecordCount, catalogSourceSha256]);
+  }, [catalogRecordCount, catalogSourceSha256, onWebMcpStatusChange]);
 
   const games = catalog?.games ?? [];
   const total = catalog?.query.total ?? 0;
@@ -252,11 +240,9 @@ export default function CatalogPage() {
   const activeCatalogTab = openReport?.report.id ?? "raw-data";
   const sortIndicator = (key: SortKey) => sortKey === key ? sortDirection === "asc" ? "↑" : "↓" : "↕";
   const changeSort = (next: SortKey) => { if (next === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(next); setSortDirection(next === "title" ? "asc" : "desc"); } setPage(0); };
-  const renderChart = (type: ChartType) => { if (!catalog) return; setVisualization(makeVisualization(type, catalog)); window.setTimeout(() => visualizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); };
-
   return <main className="site-shell">
     <section className="release-desk" aria-labelledby="page-title">
-      <header className="desk-header"><div><h1 id="page-title">Steam Desk</h1><p className="dek">A searchable Steam market catalog with analytics, genres, and tags.</p></div><div className="header-meta"><div className="catalog-status"><strong>{catalog ? catalog.meta.recordCount.toLocaleString() : "—"}</strong><span>{catalog ? `games · updated ${formatSnapshotDate(catalog.meta.importedAt.slice(0, 10))}` : catalogError || "loading catalog"}</span></div></div></header>
+      <header className="desk-header"><div><h1 id="page-title">Steam Desk</h1><p className="dek">Explore the Steam ecosystem your way, with reports and market signals shaped around what matters to you.</p></div><div className="header-meta"><div className="catalog-status"><strong>{catalog ? catalog.meta.recordCount.toLocaleString() : "—"}</strong><span>{catalog ? `games · updated ${formatSnapshotDate(catalog.meta.importedAt.slice(0, 10))}` : catalogError || "loading catalog"}</span></div></div></header>
       <div className="catalog-viewbar" ref={suggestionMenuRef}>
         <nav className="catalog-tabs" role="tablist" aria-label="Catalog views">
           <button id="catalog-tab-raw-data" type="button" role="tab" aria-selected={activeCatalogTab === "raw-data"} aria-controls="catalog-panel-raw-data" className={activeCatalogTab === "raw-data" ? "active" : ""} onClick={() => setOpenReport(null)}>
@@ -270,10 +256,10 @@ export default function CatalogPage() {
             </button>
             <button type="button" className="catalog-tab-delete" aria-label={`Delete ${report.title}`} onClick={() => { setSavedReports((items) => items.filter((item) => item.id !== report.id)); if (activeCatalogTab === report.id) setOpenReport(null); }}>×</button>
           </div>)}
-          {!savedReports.length ? <span className="catalog-tabs-empty">Saved reports will appear here</span> : null}
+          {!savedReports.length ? <span className="catalog-tabs-empty">Your personal reports will appear here</span> : null}
         </nav>
-        <button type="button" className="suggest-report" aria-expanded={showPromptGuide} aria-controls="prompt-guide" onClick={() => setShowPromptGuide((value) => !value)}>
-          {showPromptGuide ? "Hide suggestions" : "Suggest a report"} <span aria-hidden="true">{showPromptGuide ? "↑" : "↓"}</span>
+        <button type="button" className={`suggest-report${showPromptGuide ? " open" : ""}`} aria-label={showPromptGuide ? "Close report suggestions" : "Add a report"} aria-expanded={showPromptGuide} aria-controls="prompt-guide" onClick={() => setShowPromptGuide((value) => !value)}>
+          Add a report <span aria-hidden="true">+</span>
         </button>
         {showPromptGuide ? <section id="prompt-guide" className="prompt-guide catalog-suggestion-menu" role="dialog" aria-modal="false" aria-labelledby="prompt-guide-title"><header><div><h2 id="prompt-guide-title">You can ask..</h2></div><p>Choose a starting point. New reports become tabs in the catalog.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
       </div>
@@ -282,12 +268,11 @@ export default function CatalogPage() {
         <ReportBody opened={openReport} />
         <footer><span>Updated from the catalog when this tab opens</span><button type="button" onClick={() => setOpenReport(null)}>Back to raw data</button></footer>
       </section> : <section id="catalog-panel-raw-data" className="catalog-raw-view" role="tabpanel" aria-labelledby="catalog-tab-raw-data">
-        <div className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label><button type="button" className="view-button" disabled={!catalog} onClick={() => renderChart("owners")}>Quick view <span>↗</span></button></div>
+        <div className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label></div>
         <div className="result-strip"><span>{catalog ? <><strong>{total.toLocaleString()}</strong> games match</> : catalogError || "Loading catalog…"}</span><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setPage(0); }}>Reset filters</button></div>
         <div className="table-wrap"><table><thead><tr><th><button type="button" onClick={() => changeSort("title")}>Game <span>{sortIndicator("title")}</span></button></th><th><button type="button" onClick={() => changeSort("ownersMax")}>Owners <span>{sortIndicator("ownersMax")}</span></button></th><th><button type="button" onClick={() => changeSort("priceCents")}>Price <span>{sortIndicator("priceCents")}</span></button></th><th><button type="button" onClick={() => changeSort("positiveRatio")}>Reviews <span>{sortIndicator("positiveRatio")}</span></button></th><th><button type="button" onClick={() => changeSort("ccu")}>Players <span>{sortIndicator("ccu")}</span></button></th><th>Avg. playtime</th></tr></thead><tbody>{games.map((game) => { const accent = Math.abs(game.id) % coverMarks.length; return <tr key={game.id}><td><div className="game-cell"><span className={`cover cover-${accent}`} aria-hidden="true"><i>{coverMarks[accent]}</i><b>{game.title.split(" ").map((word) => word[0]).slice(0, 2).join("")}</b></span><span><strong>{game.title}</strong><small>{game.developer}{game.genres.length ? ` · ${game.genres.slice(0, 2).join(", ")}` : ""}</small></span></div></td><td><span className="genre-pill" title={game.owners}>{formatOwnerRange(game)}</span></td><td className="price-cell">{formatPrice(game.priceCents)}</td><td className="wishlist-cell">{formatPercent(game.positiveRatio)}</td><td className="wishlist-cell">{formatCompact(game.ccu)}</td><td><span className="status">{formatPlaytime(game.averageForever)}</span></td></tr>; })}{!games.length && <tr><td colSpan={6}><div className="empty-state"><strong>{catalogError ? "Catalog unavailable" : "No games found"}</strong><span>{catalogError || "Try broader filters."}</span></div></td></tr>}</tbody></table></div>
         <footer className="desk-footer"><span>Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}</span><div><button type="button" disabled={visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer>
       </section>}
     </section>
-    {visualization && <section className="visualization-panel" ref={visualizationRef}><header><div><p className="eyebrow"><span /> Catalog quick view</p><h2>{visualization.title}</h2><p>{visualization.subtitle}</p></div><div className="chart-tabs"><button className={visualization.type === "owners" ? "active" : ""} onClick={() => renderChart("owners")}>Owners</button><button className={visualization.type === "reviews" ? "active" : ""} onClick={() => renderChart("reviews")}>Reviews</button><button className={visualization.type === "price" ? "active" : ""} onClick={() => renderChart("price")}>Price</button></div></header><BarChart visualization={visualization} /><footer><span>Reflects the current catalog filters</span><button type="button" onClick={() => setVisualization(null)}>Close quick view</button></footer></section>}
   </main>;
 }

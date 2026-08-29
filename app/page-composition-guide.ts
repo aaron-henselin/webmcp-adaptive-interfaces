@@ -3,12 +3,13 @@ export const PAGE_COMPOSITION_GUIDE = {
   audienceDiscovery: {
     requiredBeforeCreation: true,
     requiredFields: ["firstName", "jobRole", "company"],
-    workflow: ["Inspect workspace.audience first.", "If first name or job role is missing, stop and ask the user for it.", "If company is missing, ask for the company name, call search_game_companies, present the returned candidates, and wait for the user to select the closest match; never choose a candidate for them.", "Call compose_page with setAudience and the user-confirmed company candidate before addHtml, addTabs, or create_report.", "Do not guess a role or company from data, browsing behavior, or prior report requests."],
+    workflow: ["When the user says 'onboard me' or a similar phrase such as 'set me up' or 'get started,' call onboard_audience with operation start.", "Ask one concise survey for the user's first name, game company, and job role; do not infer missing identity details.", "Submit all three answers through onboard_audience. Let the tool resolve strong company typo matches; ask the user only when it returns an ambiguous shortlist.", "After the audience is saved, propose one useful page purpose, the strongest role-and-company-relevant signals, an ordered section list, and one primary action.", "Wait for the user to approve or revise that proposal, then call request_page_composition with the approved proposal before addHtml, addTabs, or create_report."],
     roleApplication: ["Prioritize the decisions and metrics that matter to that role.", "Use vocabulary appropriate to the role without stereotyping.", "Choose a CTA that advances the role's likely next task.", "Explain why the first-view content is relevant to the role."],
     companyApplication: ["Use the confirmed company to frame portfolio-relevant comparisons, opportunities, and risks.", "Prefer useful company context in the welcome, report framing, or CTA instead of repeating the company name in every block.", "When catalog data supports it, compare the company portfolio with an appropriate market cohort and label the comparison clearly.", "Do not imply access to private company data or treat catalog affiliation as proof of the user's identity."],
   },
   decisionOrder: [
-    "Confirm the user's first name, job role, and user-selected company match, then identify their job-to-be-done and single most important action or answer.",
+    "Complete the agent-led name, company, and role survey, resolve the company, and save the audience.",
+    "Propose the user's likely job-to-be-done, single most important action or answer, and the smallest useful page; wait for approval before composition.",
     "Choose the smallest number of blocks that creates a clear reading order.",
     "Select each block's width from its information density and priority; do not ask the user to choose widths.",
     "For briefings, home pages, and overviews, add a restrained personalized welcome and one clear call to action.",
@@ -51,7 +52,8 @@ export const PAGE_COMPOSITION_GUIDE = {
   },
   qualityChecks: [
     "The stored first name and job role were confirmed by the user before page creation.",
-    "The stored company is a search candidate explicitly selected by the user, not an agent-inferred match.",
+    "The stored company is an exact or high-confidence typo-resolved catalog match; ambiguous matches were selected by the user.",
+    "The approved proposal is stored before the first page mutation.",
     "The page has one obvious starting point and one primary next action.",
     "Width reflects content density, not arbitrary symmetry.",
     "Personalization uses company context where it improves relevance and remains restrained.",

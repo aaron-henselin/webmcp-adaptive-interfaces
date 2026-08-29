@@ -49,6 +49,10 @@ export const companies = sqliteTable("companies", {
   isPublisher: integer("is_publisher", { mode: "boolean" }).notNull(),
   gameCount: integer("game_count").notNull(),
 }, (table) => [index("idx_companies_game_count").on(table.gameCount)]);
+export const companySearchGrams = sqliteTable("company_search_grams", {
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  gram: text("gram").notNull(),
+}, (table) => [primaryKey({ columns: [table.companyId, table.gram] }), index("idx_company_search_grams_gram").on(table.gram, table.companyId)]);
 export const genres = sqliteTable("genres", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
 export const categories = sqliteTable("categories", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });
 export const tags = sqliteTable("tags", { id: integer("id").primaryKey(), name: text("name").notNull().unique() });

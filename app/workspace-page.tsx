@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CATALOG_ANALYTICS_BINDING_SCHEMA, CATALOG_FIELD_CATALOG, OWNER_BANDS, PRICE_BANDS } from "./catalog-analytics";
-import { executeCatalogReport, loadCatalogPage, searchGameCompanies, type CatalogPage } from "./catalog-data";
+import { executeCatalogReport, loadCatalogPage, resolveGameCompany, type CatalogPage, type GameCompany } from "./catalog-data";
 import { bindCatalogRowsToFigure } from "./catalog-visualization";
 import {
   DEFAULT_ENGAGEMENT_FILTERS,
@@ -63,8 +63,8 @@ const COMPOSE_PAGE_SCHEMA = {
       type: "array", maxItems: 16, items: {
         type: "object", additionalProperties: true,
         properties: {
-          op: { type: "string", enum: ["inspect", "setAudience", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"] },
-          target: { type: "string", maxLength: 128 }, firstName: { type: "string", maxLength: 60, description: "User-confirmed first name for local personalization." }, jobRole: { type: "string", maxLength: 100, description: "User-confirmed job role; required before page creation." }, companyId: { type: "integer", minimum: 1, description: "ID from the search_game_companies candidate explicitly selected by the user." }, companyName: { type: "string", maxLength: 120, description: "Exact name of the search_game_companies candidate explicitly selected by the user." }, title: { type: "string", maxLength: 100 }, markup: { type: "string", maxLength: MAX_HTML_LENGTH },
+          op: { type: "string", enum: ["inspect", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"] },
+          target: { type: "string", maxLength: 128 }, title: { type: "string", maxLength: 100 }, markup: { type: "string", maxLength: MAX_HTML_LENGTH },
           span: { type: "string", enum: SPANS, description: "Infer from content: full for primary/dense content, half for paired peers, third for three-up summaries, quarter for four compact KPIs." }, after: { type: "string", maxLength: 128 }, before: { type: "string", maxLength: 128 },
           labels: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", maxLength: 60 } },
           tabLabels: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", maxLength: 60 } },
@@ -75,6 +75,27 @@ const COMPOSE_PAGE_SCHEMA = {
     },
     openInBrowser: { type: "boolean", default: true },
   }, required: ["operations"],
+};
+
+const ONBOARD_AUDIENCE_SCHEMA = {
+  type: "object", additionalProperties: false,
+  properties: {
+    operation: { type: "string", enum: ["start", "submit"] },
+    firstName: { type: "string", maxLength: 60 },
+    company: { type: "string", maxLength: 120 },
+    jobRole: { type: "string", maxLength: 100 },
+    companyId: { type: "integer", minimum: 1, description: "Use only after the user resolves an ambiguous company shortlist." },
+  }, required: ["operation"],
+};
+
+const PAGE_PROPOSAL_SCHEMA = {
+  type: "object", additionalProperties: false,
+  properties: {
+    summary: { type: "string", maxLength: 400, description: "The page purpose the user approved." },
+    sections: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", maxLength: 120 }, description: "The approved page sections in reading order." },
+    primaryAction: { type: "string", maxLength: 180, description: "The approved primary next action." },
+    userConfirmed: { type: "boolean", description: "True only after the user approves or revises the proposal in conversation." },
+  }, required: ["summary", "sections", "primaryAction", "userConfirmed"],
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -320,7 +341,6 @@ function normalizeOperations(value: unknown): WorkspaceOperation[] {
     if (!isRecord(item) || typeof item.op !== "string") throw new Error("Each page operation requires an op.");
     const target = typeof item.target === "string" ? item.target.slice(0, 128) : "selected";
     if (item.op === "inspect" || item.op === "undo" || item.op === "reset") return { op: item.op };
-    if (item.op === "setAudience") { const firstName = text(item.firstName, "", 60); const jobRole = text(item.jobRole, "", 100); const companyId = typeof item.companyId === "number" ? Math.floor(item.companyId) : 0; const companyName = text(item.companyName, "", 120); if (!firstName || !jobRole || companyId < 1 || !companyName) throw new Error("setAudience requires the user-confirmed first name, job role, and selected company candidate."); return { op: "setAudience", firstName, jobRole, companyId, companyName }; }
     if (item.op === "select" || item.op === "remove") return { op: item.op, target };
     if (item.op === "setSpan") { const span = validSpan(item.span); if (!span) throw new Error("setSpan requires full, half, third, or quarter."); return { op: "setSpan", target, span }; }
     if (item.op === "addHtml") { if (typeof item.markup !== "string") throw new Error("addHtml requires markup."); validateBindings(item.markup); return { op: "addHtml", title: typeof item.title === "string" ? item.title : undefined, markup: item.markup, span: validSpan(item.span), after: typeof item.after === "string" ? item.after : undefined }; }
@@ -347,7 +367,6 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [editingAudience, setEditingAudience] = useState(false);
-  const [pageCreationRequested, setPageCreationRequested] = useState(false);
   const [engagementFilters, setEngagementFilters] = useState<EngagementSourceFilters>(DEFAULT_ENGAGEMENT_FILTERS);
   const workspaceRef = useRef<Workspace | null>(null);
   const engagementFiltersRef = useRef(engagementFilters);
@@ -358,7 +377,6 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
 
   const commitWorkspace = useCallback((next: Workspace, remember = true) => {
     if (remember && workspaceRef.current) { undoRef.current = structuredClone(workspaceRef.current); setCanUndo(true); }
-    if (next.blocks.length) setPageCreationRequested(false);
     workspaceRef.current = next; setWorkspace(next); saveWorkspace(next);
   }, []);
 
@@ -393,7 +411,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
     const createReport = async (input: Record<string, unknown>) => {
       const current = workspaceRef.current;
       if (!current) throw new Error("The page workspace is unavailable.");
-      if (!current.audience.firstName || !current.audience.jobRole || !current.audience.company) throw new Error("Before creating a page, collect the user's first name and job role, use search_game_companies, let the user select a company candidate, then save all three with compose_page setAudience.");
+      if (current.onboarding.stage !== "composition_ready") throw new Error("Page creation is locked until onboard_audience saves the survey, the agent proposes the most useful page, and the user approves that proposal with request_page_composition.");
       const created = createPresentation(input);
       const data = isRecord(input.data) ? input.data : {};
       const binding = normalizeBuilderAnalyticsBinding({ ...data, encoding: created.encoding });
@@ -409,11 +427,74 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
       return { report, result };
     };
 
+    const onboardAudience = async (input: Record<string, unknown>) => {
+      try {
+        const current = workspaceRef.current;
+        if (!current) throw new Error("The page workspace is unavailable.");
+        if (input.operation === "start") {
+          return {
+            content: [{ type: "text", text: "Ask the user one concise survey containing all three questions: their first name, game company, and job role. Accept a natural-language answer, do not infer missing identity details, then call onboard_audience again with operation submit." }],
+            structuredContent: {
+              schemaVersion: "steam-desk.audience-onboarding/v1",
+              stage: "survey_required",
+              currentAudience: current.audience,
+              survey: [
+                { field: "firstName", question: "What is your first name?" },
+                { field: "company", question: "What game company do you work for?" },
+                { field: "jobRole", question: "What is your role there?" },
+              ],
+              instruction: "Ask all three questions now, then submit the user's answers with this tool. Company spelling is resolved by the tool; do not ask the user to manually search the catalog.",
+            },
+          };
+        }
+        if (input.operation !== "submit") throw new Error("operation must be start or submit.");
+        const firstName = text(input.firstName, "", 60);
+        const companyQuery = text(input.company, "", 120);
+        const jobRole = text(input.jobRole, "", 100);
+        if (!firstName || !companyQuery || !jobRole) throw new Error("Submit requires the user-provided first name, company, and job role.");
+        const result = await resolveGameCompany(companyQuery, controller.signal);
+        const requestedCompanyId = typeof input.companyId === "number" ? Math.floor(input.companyId) : 0;
+        const selectable = new Map<number, GameCompany>();
+        for (const company of [result.resolution.company, ...result.resolution.alternatives, ...result.candidates]) if (company) selectable.set(company.id, company);
+        const company = requestedCompanyId ? selectable.get(requestedCompanyId) : result.resolution.company;
+        if (requestedCompanyId && !company) throw new Error("The selected companyId is not in the resolver's current candidates. Ask the user to choose from the latest shortlist.");
+        if (!company && result.resolution.status === "ambiguous") {
+          return {
+            content: [{ type: "text", text: "The company name has multiple plausible catalog matches. Ask the user one focused follow-up using the returned shortlist, then resubmit the same survey with the selected companyId." }],
+            structuredContent: { schemaVersion: "steam-desk.audience-onboarding/v1", stage: "company_clarification", submitted: { firstName, company: companyQuery, jobRole }, candidates: result.resolution.alternatives, instruction: "Ask only which listed company they mean. Do not make an ambiguous employer choice." },
+          };
+        }
+        if (!company) {
+          return {
+            content: [{ type: "text", text: "No credible Steam catalog company match was found after typo-tolerant resolution. Tell the user and ask for an alternate spelling or company name, then resubmit." }],
+            structuredContent: { schemaVersion: "steam-desk.audience-onboarding/v1", stage: "company_not_found", submitted: { firstName, company: companyQuery, jobRole }, candidates: result.candidates, instruction: "Do not invent a company or silently substitute a weak match." },
+          };
+        }
+        const next: Workspace = { ...current, audience: { firstName, jobRole, company: { id: company.id, name: company.name } }, onboarding: { stage: "proposal_required", proposal: null } };
+        commitWorkspace(next);
+        setEditingAudience(false);
+        const corrected = result.resolution.status === "corrected" && companyQuery.localeCompare(company.name, undefined, { sensitivity: "accent" }) !== 0;
+        return {
+          content: [{ type: "text", text: `Saved the audience for ${firstName}, ${jobRole} at ${company.name}.${corrected ? ` Resolved “${companyQuery}” to the catalog company “${company.name}”.` : ""} Before requesting composition, propose what page would be most useful, explain the recommended sections and primary action, and wait for the user's approval or revisions.` }],
+          structuredContent: {
+            schemaVersion: "steam-desk.audience-onboarding/v1",
+            stage: "proposal_required",
+            audience: next.audience,
+            companyResolution: { status: result.resolution.status, confidence: result.resolution.confidence, submittedName: companyQuery, canonicalName: company.name, corrected },
+            proposalRequirements: ["State one clear page purpose.", "Recommend the most decision-useful signals for the role and company.", "List the page sections in reading order.", "Name one primary next action."],
+            instruction: "Make the proposal to the user now. Do not call request_page_composition until the user approves or revises it.",
+          },
+        };
+      } catch (error) {
+        return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Audience onboarding failed." }], structuredContent: { ok: false } };
+      }
+    };
+
     const tools = [
-      { name: "describe_page_data", description: "Describe the builder's Steam product catalog, customer engagement data, current shared filters, page outline, audience status, composition guide, and exact report presentation modes. Before page creation, inspect workspace.audience. Missing companies must be searched with search_game_companies and selected by the user; never infer a role or employer.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => { const current = workspaceRef.current!; return { content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length + ENGAGEMENT_FIELD_CATALOG.length} reportable fields across two builder sources and ${workspaceOutline(current).length} page blocks.` }], structuredContent: { schemaVersion: "steam-desk.workspace/v2", sources: [{ name: "steam_catalog", label: "Steam product catalog", recordCount, fields: CATALOG_FIELD_CATALOG }, { name: "customer_engagement", label: "Customer engagement", views: ["sessions", "funnel"], fields: ENGAGEMENT_FIELD_CATALOG, sharedFilters: engagementFiltersRef.current, guidance: ["Use sessions for users, sessions, duration, device, product, shop, and customer analysis.", "Use funnel for ordered Visitors, Sign-ups, Active, and Subscribed stages.", "Set inheritPageFilters to true for reports that should respond to the builder's filter panel.", "Supplier maps to publisher, brand to developer, productCategory to genre, and productClass to Steam category."] }], workspace: { storage: "local", audience: current.audience, selectedBlockId: current.selectedBlockId, blocks: workspaceOutline(current) }, htmlBindings: HTML_BINDINGS, compositionGuide: PAGE_COMPOSITION_GUIDE, spans: SPANS, composeOperations: ["inspect", "setAudience", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"], reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Use create_report for every data-derived question, calculation, ranking, comparison, summary, table, or chart, even when the user asks naturally and never says report or save.", REPORT_PRESENTATION_DESCRIPTION] } }; } },
-      { name: "search_game_companies", description: "Full-text search developer and publisher company names in the Steam catalog. Return ranked candidates only. Present the candidates and wait for the user to select the closest match; never choose or save a company on the user's behalf.", inputSchema: { type: "object", additionalProperties: false, properties: { query: { type: "string", minLength: 2, maxLength: 120, description: "Company name supplied by the user." } }, required: ["query"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const query = text(input.query, "", 120); if (query.length < 2) throw new Error("Company search requires at least two characters."); const candidates = await searchGameCompanies(query, controller.signal); return { content: [{ type: "text", text: candidates.length ? `Found ${candidates.length} candidate companies. Present them to the user and wait for their selection.` : "No matching catalog companies were found. Ask the user for a broader or alternate company name." }], structuredContent: { schemaVersion: "steam-desk.company-search/v1", query, candidates, selectionRequired: true, instruction: "The user must select the closest match. Do not select a candidate for them." } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Company search failed." }] }; } } },
+      { name: "describe_page_data", description: "Describe the builder's reportable data, page outline, audience, onboarding stage, approved proposal, composition guide, and exact presentation modes. If onboarding is incomplete, use onboard_audience instead of collecting or saving identity through compose_page.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => { const current = workspaceRef.current!; return { content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length + ENGAGEMENT_FIELD_CATALOG.length} reportable fields across two builder sources and ${workspaceOutline(current).length} page blocks.` }], structuredContent: { schemaVersion: "steam-desk.workspace/v3", sources: [{ name: "steam_catalog", label: "Steam product catalog", recordCount, fields: CATALOG_FIELD_CATALOG }, { name: "customer_engagement", label: "Customer engagement", views: ["sessions", "funnel"], fields: ENGAGEMENT_FIELD_CATALOG, sharedFilters: engagementFiltersRef.current, guidance: ["Use sessions for users, sessions, duration, device, product, shop, and customer analysis.", "Use funnel for ordered Visitors, Sign-ups, Active, and Subscribed stages.", "Set inheritPageFilters to true for reports that should respond to the builder's filter panel.", "Supplier maps to publisher, brand to developer, productCategory to genre, and productClass to Steam category."] }], workspace: { storage: "local", audience: current.audience, onboarding: current.onboarding, selectedBlockId: current.selectedBlockId, blocks: workspaceOutline(current) }, htmlBindings: HTML_BINDINGS, compositionGuide: PAGE_COMPOSITION_GUIDE, spans: SPANS, composeOperations: ["inspect", "select", "addHtml", "addTabs", "move", "setSpan", "configure", "remove", "undo", "reset"], reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Use onboard_audience for the name, company, and role survey. After submission, propose the page and wait for approval before request_page_composition.", "Use create_report for every data-derived question, calculation, ranking, comparison, summary, table, chart, or narrative.", REPORT_PRESENTATION_DESCRIPTION] } }; } },
+      { name: "onboard_audience", description: "Start or submit the agent-led audience survey. When the user says “onboard me” or uses a similar phrase such as “set me up” or “get started,” immediately call operation start. Ask for their first name, game company, and job role in one concise survey, then submit all three answers here. The tool resolves likely company typos itself, asks for user clarification only when catalog matches are genuinely ambiguous, stores the audience locally, and then requires you to propose the most useful page before composition.", inputSchema: ONBOARD_AUDIENCE_SCHEMA, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: onboardAudience },
       { name: "create_report", description: "Use for every request that asks for an answer, calculation, analysis, ranking, comparison, summary, table, chart, or narrative from the Steam product catalog or customer engagement data, even when the user does not say report or save. This is the reporting interface for all data-derived content and places the result inline. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports or tabs when both a chart and table are needed. Requires a user-confirmed name and role plus a company candidate explicitly selected by the user. Use role and company context to tailor priorities and framing, and use quarter width for a row of four compact KPIs.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, span: { type: "string", enum: SPANS, description: "Choose full for primary or dense content, half for paired peers, third for three-up summaries, or quarter for four compact KPIs." }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const created = await createReport(input); return { content: [{ type: "text", text: `Created “${created.report.title}” and placed it on the page.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v5", ok: true, report: { id: created.report.id, title: created.report.title, source: created.report.binding.source.name, mode: created.report.presentation.mode, span: created.report.span, rowCount: created.result.rows.length }, workspace: { storage: "local", selectedBlockId: created.report.id } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }] }; } } },
-      { name: "compose_page", description: "Inspect or compose the local page. Use create_report, not addHtml, for content that depends on catalog or engagement data. Before creating blocks, collect the user's first name and job role, search company candidates, and wait for the user to select one. Save the exact selected candidate with setAudience; never guess. Use both role and company to tailor priorities, framing, vocabulary, and the CTA.", inputSchema: COMPOSE_PAGE_SCHEMA, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const operations = normalizeOperations(input.operations); const current = workspaceRef.current; if (!current) throw new Error("The page workspace is unavailable."); const audienceOperations = operations.filter((operation): operation is Extract<WorkspaceOperation, { op: "setAudience" }> => operation.op === "setAudience"); const candidateLists = await Promise.all(audienceOperations.map((operation) => searchGameCompanies(operation.companyName, controller.signal))); for (let index = 0; index < audienceOperations.length; index += 1) { const operation = audienceOperations[index]; const selected = candidateLists[index].some((candidate) => candidate.id === operation.companyId && candidate.name === operation.companyName); if (!selected) throw new Error("The selected company must exactly match a candidate returned by search_game_companies."); } let audience = current.audience; for (const operation of operations) { if (operation.op === "setAudience") audience = { firstName: operation.firstName, jobRole: operation.jobRole, company: { id: operation.companyId, name: operation.companyName } }; if ((operation.op === "addHtml" || operation.op === "addTabs") && (!audience.firstName || !audience.jobRole || !audience.company)) throw new Error("Before creating page blocks, collect the user's name and role, then search companies and let the user select a candidate before setAudience."); } if (operations.some((operation) => operation.op === "undo")) { if (operations.length !== 1) throw new Error("undo must be the only page operation."); const changed = undoWorkspace(); const restored = workspaceRef.current!; return { content: [{ type: "text", text: changed ? "Undid the last page change." : "There is no page change to undo." }], structuredContent: { ok: true, changed, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: restored.audience, selectedBlockId: restored.selectedBlockId, blocks: workspaceOutline(restored) } } }; } const applied = applyOperations(current, operations); if (applied.changes.length) commitWorkspace(applied.workspace, !operations.every((operation) => operation.op === "select")); if (input.openInBrowser !== false && applied.changes.length) window.setTimeout(() => workspaceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); return { content: [{ type: "text", text: applied.changes.length ? applied.changes.join(" ") : `The page contains ${workspaceOutline(applied.workspace).length} top-level blocks.` }], structuredContent: { schemaVersion: "steam-desk.compose-receipt/v1", ok: true, changed: Boolean(applied.changes.length), changes: applied.changes, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: applied.workspace.audience, selectedBlockId: applied.workspace.selectedBlockId, blocks: workspaceOutline(applied.workspace) } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Page composition failed." }], structuredContent: { ok: false } }; } } },
+      { name: "compose_page", description: "Inspect or compose the local page after the user has approved the agent's proposal through request_page_composition. Use create_report, not addHtml, for content that depends on catalog or engagement data. Follow the approved proposal and use the confirmed role and company to tailor priorities, framing, vocabulary, and the CTA.", inputSchema: COMPOSE_PAGE_SCHEMA, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const operations = normalizeOperations(input.operations); const current = workspaceRef.current; if (!current) throw new Error("The page workspace is unavailable."); const mutatesPage = operations.some((operation) => operation.op !== "inspect" && operation.op !== "select"); if (mutatesPage && current.onboarding.stage !== "composition_ready") throw new Error("Page composition is locked. Finish onboard_audience, propose the most useful page to the user, wait for approval, and call request_page_composition first."); if (operations.some((operation) => operation.op === "undo")) { if (operations.length !== 1) throw new Error("undo must be the only page operation."); const changed = undoWorkspace(); const restored = workspaceRef.current!; return { content: [{ type: "text", text: changed ? "Undid the last page change." : "There is no page change to undo." }], structuredContent: { ok: true, changed, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: restored.audience, onboarding: restored.onboarding, selectedBlockId: restored.selectedBlockId, blocks: workspaceOutline(restored) } } }; } const applied = applyOperations(current, operations); if (applied.changes.length) commitWorkspace(applied.workspace, !operations.every((operation) => operation.op === "select")); if (input.openInBrowser !== false && applied.changes.length) window.setTimeout(() => workspaceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); return { content: [{ type: "text", text: applied.changes.length ? applied.changes.join(" ") : `The page contains ${workspaceOutline(applied.workspace).length} top-level blocks.` }], structuredContent: { schemaVersion: "steam-desk.compose-receipt/v2", ok: true, changed: Boolean(applied.changes.length), changes: applied.changes, approvedProposal: applied.workspace.onboarding.proposal, compositionGuide: PAGE_COMPOSITION_GUIDE, workspace: { storage: "local", audience: applied.workspace.audience, onboarding: applied.workspace.onboarding, selectedBlockId: applied.workspace.selectedBlockId, blocks: workspaceOutline(applied.workspace) } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Page composition failed." }], structuredContent: { ok: false } }; } } },
       { name: "render_report", description: "Render an inline report from the local page as bounded Markdown or a PNG.", inputSchema: { type: "object", additionalProperties: false, properties: { reportId: { type: "string", minLength: 1, maxLength: 128 }, renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto" } }, required: ["reportId"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const current = workspaceRef.current; const report = current ? reportBlocks(current).find((item) => item.id === input.reportId) : null; if (!report) throw new Error("Report not found on this page."); const result = await runReport(report, engagementFiltersRef.current); const imageMode = input.renderMode === "image" || input.renderMode !== "markdown" && Boolean(result.figure); if (imageMode) { if (!result.figure) throw new Error("Image rendering is available only for chart reports."); return { content: [{ type: "text", text: `Rendered “${report.title}” as a PNG.` }, { type: "image", data: await renderPlotlyFigureToPng(result.figure), mimeType: "image/png" }], structuredContent: { ok: true, report: { id: report.id, title: report.title } } }; } return { content: [{ type: "text", text: markdownReport(report, result) }], structuredContent: { ok: true, report: { id: report.id, title: report.title } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report rendering failed." }] }; } } },
     ];
     void Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal })))
@@ -422,37 +503,48 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
     return () => controller.abort();
   }, [commitWorkspace, onWebMcpStatusChange, recordCount, sourceSha256, undoWorkspace]);
 
-  const pageBlockCount = workspace?.blocks.length;
+  const onboardingStage = workspace?.onboarding.stage;
   useEffect(() => {
-    if (!pageCreationRequested || recordCount === undefined || !workspaceRef.current || pageBlockCount) return;
+    if (onboardingStage !== "proposal_required" || recordCount === undefined || !workspaceRef.current) return;
     const context = document.modelContext ?? navigator.modelContext;
     if (!context) return;
     const controller = new AbortController();
     const tool = {
-      name: "page_creation_requested",
-      description: "The user just clicked Continue to page builder after confirming their audience. This newly available tool is an explicit signal to create their personalized page next. Call it now, then use the returned audience and composition guidance to build a sensible role-and-company-aware starter page without asking the user to repeat or reconfirm those details.",
-      inputSchema: { type: "object", additionalProperties: false, properties: {} },
-      annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute: () => {
+      name: "request_page_composition",
+      description: "Unlock page composition only after onboard_audience has saved the audience, you have proposed the most useful page in conversation, and the user has approved or revised that proposal. Submit the approved purpose, ordered sections, and primary action. Never call this immediately after audience submission or before user confirmation.",
+      inputSchema: PAGE_PROPOSAL_SCHEMA,
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      execute: (input: Record<string, unknown>) => {
         const current = workspaceRef.current;
         if (!current?.audience.firstName || !current.audience.jobRole || !current.audience.company) {
-          return { isError: true, content: [{ type: "text", text: "The audience is not ready for page creation." }] };
+          return { isError: true, content: [{ type: "text", text: "The audience survey has not been submitted." }] };
         }
+        if (current.onboarding.stage !== "proposal_required") return { isError: true, content: [{ type: "text", text: "The workspace is not waiting for a proposal approval." }] };
+        if (input.userConfirmed !== true) return { isError: true, content: [{ type: "text", text: "Wait for the user to approve or revise the proposal, then call again with userConfirmed true." }] };
+        const summary = text(input.summary, "", 400);
+        const sections = Array.isArray(input.sections) ? input.sections.flatMap((section): string[] => typeof section === "string" && section.trim() ? [section.trim().slice(0, 120)] : []).slice(0, 8) : [];
+        const primaryAction = text(input.primaryAction, "", 180);
+        if (!summary || !sections.length || !primaryAction) return { isError: true, content: [{ type: "text", text: "The approved proposal requires a summary, at least one ordered section, and a primary action." }] };
+        const proposal = { summary, sections, primaryAction };
+        const next: Workspace = { ...current, onboarding: { stage: "composition_ready", proposal } };
+        commitWorkspace(next);
+        setEditingAudience(false);
         return {
-          content: [{ type: "text", text: `${current.audience.firstName} completed audience selection and explicitly requested page creation. Create the personalized page next; use the existing conversation goal when available, otherwise compose a concise role-and-company-aware briefing.` }],
+          content: [{ type: "text", text: `${current.audience.firstName} approved the proposed page. Composition is unlocked. Build the approved sections now with compose_page and create_report; do not ask for the audience again.` }],
           structuredContent: {
-            schemaVersion: "steam-desk.page-creation-request/v1",
+            schemaVersion: "steam-desk.page-creation-request/v2",
             requestedAction: "create_page",
             audience: current.audience,
+            approvedProposal: proposal,
             compositionGuide: PAGE_COMPOSITION_GUIDE,
-            instruction: "Create the page now with compose_page and create_report. Do not ask the user to repeat or reconfirm their audience details.",
+            instruction: "Create the approved page now with compose_page and create_report. Follow the approved purpose, section order, and primary action.",
           },
         };
       },
     };
     void context.registerTool(tool, { signal: controller.signal }).catch(() => undefined);
     return () => controller.abort();
-  }, [pageBlockCount, pageCreationRequested, recordCount]);
+  }, [commitWorkspace, onboardingStage, recordCount]);
 
   const applyUiOperations = useCallback((operations: WorkspaceOperation[]) => {
     const current = workspaceRef.current; if (!current) return;
@@ -461,13 +553,9 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
   }, [commitWorkspace]);
 
   const audienceReady = Boolean(workspace?.audience.firstName && workspace?.audience.jobRole && workspace?.audience.company);
-  const onboardingActive = Boolean(workspace && (!audienceReady || editingAudience));
-  const studioActive = Boolean(workspace && audienceReady && !editingAudience);
-  const saveAudience = (firstName: string, jobRole: string, company: { id: number; name: string }) => {
-    applyUiOperations([{ op: "setAudience", firstName, jobRole, companyId: company.id, companyName: company.name }]);
-    if (!audienceReady && !workspace?.blocks.length) setPageCreationRequested(true);
-    setEditingAudience(false);
-  };
+  const compositionReady = workspace?.onboarding.stage === "composition_ready";
+  const onboardingActive = Boolean(workspace && (!compositionReady || editingAudience));
+  const studioActive = Boolean(workspace && compositionReady && !editingAudience);
 
   const removeBlock = (id: string) => applyUiOperations([{ op: "remove", target: id }]);
   const cycleSpan = (id: string, current: BlockSpan) => applyUiOperations([{ op: "setSpan", target: id, span: SPANS[(SPANS.indexOf(current) + 1) % SPANS.length] }]);
@@ -497,26 +585,24 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
     <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
       {!onboardingActive ? <header className="page-workspace-header">
         <div>
-          {audienceReady ? <p className="eyebrow"><span /> Step 2 of 2 · Compose</p> : null}
-          <h2 id="workspace-title">{audienceReady && !editingAudience ? "Your page" : "Know your audience"}</h2>
-          <p>{audienceReady && !editingAudience ? "Live canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + " at " + (workspace?.audience.company?.name ?? "") : "A useful page starts with who it is for. Confirm your name, role, and game company before WebMCP chooses the content and layout."}</p>
+          <p className="eyebrow"><span /> Step 3 of 3 · Compose</p>
+          <h2 id="workspace-title">Your page</h2>
+          <p>{"Approved canvas for " + (workspace?.audience.firstName ?? "") + " · " + (workspace?.audience.jobRole ?? "") + " at " + (workspace?.audience.company?.name ?? "")}</p>
         </div>
         <div className="workspace-actions">
-          {audienceReady && !editingAudience ? <>
+          <>
             <span>{workspace?.blocks.length ?? 0} blocks</span>
             <button type="button" onClick={() => setEditingAudience(true)}>Edit audience</button>
             <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
             <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
-          </> : <span>Audience setup</span>}
+          </>
         </div>
       </header> : null}
-      {workspace && (!audienceReady || editingAudience) ? (
+      {workspace && onboardingActive ? (
         <AudienceOnboarding
-          initialFirstName={workspace.audience.firstName}
-          initialJobRole={workspace.audience.jobRole}
-          initialCompany={workspace.audience.company}
+          stage={editingAudience ? "audience_required" : workspace.onboarding.stage}
+          audience={workspace.audience}
           canCancel={audienceReady}
-          onSave={saveAudience}
           onCancel={() => setEditingAudience(false)}
         />
       ) : workspace ? workspace.blocks.length ? (

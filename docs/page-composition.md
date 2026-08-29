@@ -1,30 +1,32 @@
 # Page composition and company personalization
 
-The builder personalizes pages from three locally stored, user-confirmed audience fields: first name, job role, and game company. Page creation remains unavailable until all three are present.
+The builder personalizes pages from three locally stored, user-confirmed audience fields: first name, job role, and game company. The agent owns onboarding, and page mutation remains unavailable until the user has approved the agent's proposal.
 
-## Company confirmation workflow
+## Agent onboarding workflow
 
-1. Inspect `workspace.audience` with `describe_steam_catalog`.
-2. If the company is missing, ask the user what game company they work for.
-3. Call `search_game_companies` with the name they provide.
-4. Present the ranked candidates, including developer/publisher role and catalog game count.
-5. Wait for the user to select the closest match. The agent must not make this choice.
-6. Pass the exact selected `id` and `name` to `compose_page` in the `setAudience` operation.
+1. When the user says “onboard me” or a similar phrase such as “set me up” or “get started,” call `onboard_audience` with `operation: "start"`.
+2. Ask one concise survey containing the user's first name, game company, and job role.
+3. Call `onboard_audience` with `operation: "submit"` and all three answers.
+4. Let the tool resolve the company against the Steam catalog. Exact and decisive typo matches are saved under the canonical catalog name. If the result is ambiguous, ask the user which returned candidate they mean and resubmit with its `companyId`. Never invent a company when no credible match exists.
+5. After the audience is saved, propose what page would be most useful. State one purpose, the strongest role-and-company-relevant signals, the ordered sections, and one primary action.
+6. Wait for the user to approve or revise the proposal.
+7. Call the temporarily registered `request_page_composition` tool with the approved proposal and `userConfirmed: true`.
+8. Use `compose_page` and `create_report` to build the approved page.
 
-When the user completes this workflow in the audience form, the page temporarily registers `page_creation_requested`. Its registration emits WebMCP's standard `toolchange` signal and communicates that clicking **Continue to page builder** is an explicit request to create the personalized page next. The tool includes the confirmed audience and composition guide, and it unregisters after the first page block is created.
+The workspace persists `audience_required`, `proposal_required`, or `composition_ready`. `compose_page` inspection remains available throughout, but page mutations and report creation reject requests until the approved proposal has moved the workspace to `composition_ready`.
 
-The search index unifies developer and publisher names from the Steam catalog. A selected company is personalization context, not identity verification and not evidence of access to private company data.
+The company search index unifies developer and publisher names from the Steam catalog. A selected or corrected company is personalization context, not identity verification and not evidence of access to private company data.
 
 ## Using company context well
 
 Company context should make the page more decision-useful. Strong uses include:
 
-- framing a market briefing around the company’s visible Steam portfolio;
+- framing a market briefing around the company's visible Steam portfolio;
 - comparing that portfolio with a clearly named market or genre cohort;
-- prioritizing opportunities, risks, and next actions that fit both the user’s role and company;
+- prioritizing opportunities, risks, and next actions that fit both the user's role and company;
 - using the company once in a welcome or framing block so the page feels intentionally prepared.
 
-Avoid merely repeating the company name in every title, inventing private business facts, or implying that catalog affiliation proves the user’s identity. Personalization should be specific but restrained.
+Avoid merely repeating the company name in every title, inventing private business facts, or implying that catalog affiliation proves the user's identity. Personalization should be specific but restrained.
 
 HTML widgets can use `{{user.company}}` alongside `{{user.firstName}}` and `{{user.jobRole}}`:
 

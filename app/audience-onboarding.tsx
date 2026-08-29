@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { searchGameCompanies, type GameCompany } from "./catalog-data";
-import type { AudienceCompany } from "./workspace-model";
+import { useState } from "react";
+import type { AudienceContext, OnboardingStage } from "./workspace-model";
 import "./audience-onboarding.css";
 
 type AudienceOnboardingProps = {
-  initialFirstName: string;
-  initialJobRole: string;
-  initialCompany: AudienceCompany | null;
+  stage: OnboardingStage;
+  audience: AudienceContext;
   canCancel: boolean;
-  onSave: (firstName: string, jobRole: string, company: AudienceCompany) => void;
   onCancel?: () => void;
 };
 
@@ -21,130 +18,70 @@ function timeGreeting() {
   return "Good evening";
 }
 
-function companyRole(company: GameCompany) {
-  if (company.roles.length === 2) return "developer & publisher";
-  return company.roles[0] ?? "catalog company";
-}
+export default function AudienceOnboarding({ stage, audience, canCancel, onCancel }: AudienceOnboardingProps) {
+  const [copied, setCopied] = useState(false);
+  const audienceReady = Boolean(audience.firstName && audience.jobRole && audience.company);
+  const proposalRequired = stage === "proposal_required" && audienceReady;
+  const prompt = audienceReady ? "Update my Steam Desk audience." : "Set up my Steam Desk audience.";
 
-export default function AudienceOnboarding({ initialFirstName, initialJobRole, initialCompany, canCancel, onSave, onCancel }: AudienceOnboardingProps) {
-  const [firstName, setFirstName] = useState(initialFirstName);
-  const [jobRole, setJobRole] = useState(initialJobRole);
-  const [companyQuery, setCompanyQuery] = useState(initialCompany?.name ?? "");
-  const [company, setCompany] = useState<AudienceCompany | null>(initialCompany);
-  const [companyOptions, setCompanyOptions] = useState<GameCompany[]>([]);
-  const [companyStatus, setCompanyStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [activeOption, setActiveOption] = useState(0);
-  const listboxId = useId();
-  const previewName = firstName.trim() || "there";
-
-  useEffect(() => {
-    const query = companyQuery.trim();
-    if (company?.name === query || query.length < 2) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setCompanyStatus("loading");
-      searchGameCompanies(query, controller.signal)
-        .then((results) => { setCompanyOptions(results); setActiveOption(0); setCompanyStatus("ready"); })
-        .catch(() => { if (!controller.signal.aborted) { setCompanyOptions([]); setCompanyStatus("error"); } });
-    }, 180);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [company, companyQuery]);
-
-  const chooseCompany = (selected: GameCompany) => {
-    setCompany({ id: selected.id, name: selected.name });
-    setCompanyQuery(selected.name);
-    setCompanyOptions([]);
-    setCompanyStatus("idle");
+  const copyPrompt = () => {
+    void navigator.clipboard.writeText(prompt).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    });
   };
-  const showCompanyOptions = !company && companyQuery.trim().length >= 2 && (companyStatus !== "idle" || companyOptions.length > 0);
-  const ready = Boolean(firstName.trim() && jobRole.trim() && company);
+
+  if (stage === "audience_required" && !audienceReady) {
+    return <div className="audience-onboarding audience-invitation">
+      <section className="audience-invitation-copy" aria-labelledby="audience-brief-title">
+        <h3 id="audience-brief-title">Make Steam Desk yours.</h3>
+        <p>Say <strong>“onboard me”</strong> to get started.</p>
+      </section>
+    </div>;
+  }
 
   return (
     <div className="audience-onboarding">
       <section className="audience-brief" aria-labelledby="audience-brief-title">
         <div>
-          <h3 id="audience-brief-title">Your company dashboard is almost ready.</h3>
-          <p className="audience-intro">The following demo will create a personal company dashboard. Personalization is stored within your browser and not sent to the server. Have fun!</p>
-          <div className="audience-ideas" aria-label="Ideas to try in the demo">
-            <div>
-              <span>Role ideas</span>
-              <ul><li>Product manager</li><li>Publishing lead</li><li>Market analyst</li></ul>
-            </div>
-            <div>
-              <span>Company ideas</span>
-              <ul><li>Valve</li><li>Capcom</li><li>Devolver Digital</li></ul>
-            </div>
-          </div>
+          <p className="eyebrow"><span /> Agent-led setup</p>
+          <h3 id="audience-brief-title">{proposalRequired ? "Your audience is ready. The useful part comes next." : "Set up the dashboard in conversation."}</h3>
+          <p className="audience-intro">{proposalRequired
+            ? "WebMCP now has the context it needs. Before anything is added to the page, the agent will propose the most useful briefing for this role and company and wait for your approval."
+            : "Ask WebMCP to begin onboarding. It will run a short survey for your name, company, and role, resolve likely company typos, and keep the confirmed audience in this browser."}</p>
         </div>
-        <div className="audience-example" aria-label="Personalization preview">
-          <span>Personalization preview</span>
-          <strong>{timeGreeting()}, {previewName}.</strong>
-          <p>{jobRole.trim() && company ? `Your ${jobRole.trim()} view for ${company.name} will prioritize the market signals and decisions most relevant to your work.` : "Your role and company will shape the page’s priorities, comparisons, and call to action."}</p>
+        <div className="audience-flow" aria-label="Agent onboarding workflow">
+          <span className={audienceReady ? "complete" : "active"}><b>1</b> Survey</span>
+          <i aria-hidden="true">→</i>
+          <span className={proposalRequired ? "active" : audienceReady ? "complete" : ""}><b>2</b> Proposal</span>
+          <i aria-hidden="true">→</i>
+          <span><b>3</b> Compose</span>
         </div>
       </section>
 
-      <form className="audience-form" onSubmit={(event) => { event.preventDefault(); if (ready && company) onSave(firstName.trim(), jobRole.trim(), company); }}>
+      <section className="audience-agent-card" aria-live="polite">
         <div>
-          <p className="eyebrow"><span /> Audience brief</p>
-          <h3>Make this page yours</h3>
-          <p>We won’t guess. Confirm all three details before WebMCP composes the page.</p>
+          <p className="eyebrow"><span /> {proposalRequired ? "Proposal required" : "Audience survey"}</p>
+          <h3>{proposalRequired ? `${timeGreeting()}, ${audience.firstName}.` : "Let the agent ask the questions"}</h3>
+          <p>{proposalRequired
+            ? `Your ${audience.jobRole} view for ${audience.company?.name} is saved. The agent should recommend a purpose, the strongest signals, a clear structure, and one next action before requesting page composition.`
+            : "The onboarding tool directs the agent to ask for all three details together. You can answer naturally; there is no form to keep in sync."}</p>
         </div>
-        <label>
-          <span>First name</span>
-          <input autoFocus required autoComplete="given-name" maxLength={60} value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder="Aaron" />
-        </label>
-        <label>
-          <span>Job role</span>
-          <input required autoComplete="organization-title" maxLength={100} value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="Product manager" />
-        </label>
-        <div className="company-field">
-          <label htmlFor="audience-company">Game company</label>
-          <p>Search the Steam catalog, then select the closest match yourself.</p>
-          <div className="company-combobox">
-            <input
-              id="audience-company"
-              required
-              autoComplete="organization"
-              maxLength={120}
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={showCompanyOptions}
-              aria-controls={listboxId}
-              aria-activedescendant={showCompanyOptions && companyOptions[activeOption] ? `${listboxId}-${companyOptions[activeOption].id}` : undefined}
-              value={companyQuery}
-              onChange={(event) => { setCompanyQuery(event.target.value); setCompany(null); setCompanyOptions([]); setCompanyStatus("idle"); setActiveOption(0); }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown" && companyOptions.length) { event.preventDefault(); setActiveOption((value) => Math.min(companyOptions.length - 1, value + 1)); }
-                if (event.key === "ArrowUp" && companyOptions.length) { event.preventDefault(); setActiveOption((value) => Math.max(0, value - 1)); }
-                if (event.key === "Enter" && showCompanyOptions && companyOptions[activeOption]) { event.preventDefault(); chooseCompany(companyOptions[activeOption]); }
-                if (event.key === "Escape") { setCompanyOptions([]); setCompanyStatus("idle"); }
-              }}
-              placeholder="Search developers and publishers"
-            />
-            {company ? <span className="company-confirmed" aria-label="Company selected">✓</span> : null}
-            {showCompanyOptions ? <div className="company-options" id={listboxId} role="listbox" aria-label="Matching game companies">
-              {companyStatus === "loading" ? <p className="company-option-status">Searching catalog…</p> : null}
-              {companyStatus === "error" ? <p className="company-option-status error">Company search is unavailable. Try again.</p> : null}
-              {companyStatus === "ready" && !companyOptions.length ? <p className="company-option-status">No matching catalog companies. Try a broader name.</p> : null}
-              {companyOptions.map((option, index) => <button
-                id={`${listboxId}-${option.id}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeOption}
-                className={index === activeOption ? "active" : ""}
-                key={option.id}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => chooseCompany(option)}
-              ><span><strong>{option.name}</strong><small>{companyRole(option)} · {option.gameCount.toLocaleString()} catalog {option.gameCount === 1 ? "game" : "games"}</small></span><b aria-hidden="true">Select</b></button>)}
-            </div> : null}
-          </div>
-        </div>
-        <p className="audience-privacy"><span aria-hidden="true">⌂</span> Kept only in this browser. It personalizes presentation, not the underlying catalog data.</p>
+
+        {audienceReady ? <dl className="audience-confirmed-list">
+          <div><dt>Name</dt><dd>{audience.firstName}</dd></div>
+          <div><dt>Company</dt><dd>{audience.company?.name}</dd></div>
+          <div><dt>Role</dt><dd>{audience.jobRole}</dd></div>
+        </dl> : <div className="audience-survey-preview">
+          <span>Name</span><span>Company</span><span>Role</span>
+        </div>}
+
+        <p className="audience-privacy"><span aria-hidden="true">⌂</span> Stored only in this browser. Company matching uses the public Steam catalog and does not verify identity.</p>
         <div className="audience-form-actions">
           {canCancel ? <button type="button" className="audience-cancel" onClick={onCancel}>Keep current audience</button> : null}
-          <button type="submit" className="audience-continue" disabled={!ready}>Continue to page builder <span aria-hidden="true">→</span></button>
+          {!proposalRequired ? <button type="button" className="audience-continue" onClick={copyPrompt}>{copied ? "Prompt copied ✓" : "Copy setup prompt"}<span aria-hidden="true">↗</span></button> : <span className="audience-waiting">Waiting for the agent’s proposal</span>}
         </div>
-      </form>
+      </section>
     </div>
   );
 }

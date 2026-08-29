@@ -53,14 +53,34 @@ export type GameCompany = {
   name: string;
   roles: Array<"developer" | "publisher">;
   gameCount: number;
+  similarity?: number;
 };
 
-export async function searchGameCompanies(query: string, signal?: AbortSignal) {
+export type CompanyResolution = {
+  status: "matched" | "corrected" | "ambiguous" | "not_found";
+  confidence: number;
+  company?: GameCompany;
+  correctedFrom?: string;
+  alternatives: GameCompany[];
+};
+
+export type CompanySearchResult = {
+  schemaVersion: "steam-desk.company-search/v2";
+  query: string;
+  candidates: GameCompany[];
+  resolution: CompanyResolution;
+};
+
+export async function resolveGameCompany(query: string, signal?: AbortSignal): Promise<CompanySearchResult> {
   const params = new URLSearchParams({ query, limit: "8" });
   const response = await fetch("/api/catalog/companies?" + params, { signal, cache: "no-store" });
-  const value = await response.json() as { candidates?: GameCompany[]; error?: string };
-  if (!response.ok || !Array.isArray(value.candidates)) throw new Error(value.error || "Company search failed with status " + response.status + ".");
-  return value.candidates;
+  const value = await response.json() as CompanySearchResult | { error?: string };
+  if (!response.ok || !("candidates" in value) || !Array.isArray(value.candidates) || !("resolution" in value)) throw new Error("error" in value && value.error ? value.error : "Company search failed with status " + response.status + ".");
+  return value;
+}
+
+export async function searchGameCompanies(query: string, signal?: AbortSignal) {
+  return (await resolveGameCompany(query, signal)).candidates;
 }
 
 export async function loadCatalogPage(options: CatalogPageOptions, signal?: AbortSignal) {

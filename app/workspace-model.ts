@@ -33,11 +33,13 @@ export type TabsBlock = { id: string; type: "tabs"; span: BlockSpan; title: stri
 export type WorkspaceBlock = LeafBlock | TabsBlock;
 export type AudienceCompany = { id: number; name: string };
 export type AudienceContext = { firstName: string; jobRole: string; company: AudienceCompany | null };
-export type Workspace = { schemaVersion: 1; updatedAt: string; selectedBlockId: string | null; audience: AudienceContext; blocks: WorkspaceBlock[] };
+export type OnboardingStage = "audience_required" | "proposal_required" | "composition_ready";
+export type PageProposal = { summary: string; sections: string[]; primaryAction: string };
+export type OnboardingState = { stage: OnboardingStage; proposal: PageProposal | null };
+export type Workspace = { schemaVersion: 2; updatedAt: string; selectedBlockId: string | null; audience: AudienceContext; onboarding: OnboardingState; blocks: WorkspaceBlock[] };
 
 export type WorkspaceOperation =
   | { op: "inspect" }
-  | { op: "setAudience"; firstName: string; jobRole: string; companyId: number; companyName: string }
   | { op: "select"; target: string }
   | { op: "addHtml"; title?: string; markup: string; span?: BlockSpan; after?: string }
   | { op: "addTabs"; title?: string; labels: string[]; span?: BlockSpan; after?: string }
@@ -48,7 +50,8 @@ export type WorkspaceOperation =
   | { op: "undo" }
   | { op: "reset" };
 
-export const WORKSPACE_KEY = "steam-desk:workspace:v1";
+export const WORKSPACE_KEY = "steam-desk:workspace:v2";
+export const LEGACY_WORKSPACE_KEY = "steam-desk:workspace:v1";
 export const LEGACY_REPORTS_KEY = "steam-desk:saved-reports:v5";
 export const MAX_WORKSPACE_BLOCKS = 32;
 export const MAX_TABS = 6;
@@ -148,11 +151,11 @@ function totalBlocks(blocks: WorkspaceBlock[]) {
 }
 
 export function emptyWorkspace(): Workspace {
-  return { schemaVersion: 1, updatedAt: new Date().toISOString(), selectedBlockId: null, audience: { firstName: "", jobRole: "", company: null }, blocks: [] };
+  return { schemaVersion: 2, updatedAt: new Date().toISOString(), selectedBlockId: null, audience: { firstName: "", jobRole: "", company: null }, onboarding: { stage: "audience_required", proposal: null }, blocks: [] };
 }
 
 export function normalizeWorkspace(value: unknown): Workspace | null {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.blocks)) return null;
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2) || !Array.isArray(value.blocks)) return null;
   const blocks = value.blocks.flatMap((block): WorkspaceBlock[] => {
     if (!isRecord(block)) return [];
     const normalized = block.type === "tabs" ? normalizeTabs(block) : normalizeLeaf(block);
@@ -164,7 +167,23 @@ export function normalizeWorkspace(value: unknown): Workspace | null {
     ? { id: Math.floor(value.audience.company.id), name: cleanText(value.audience.company.name, "", 120) }
     : null;
   const audience = isRecord(value.audience) ? { firstName: cleanText(value.audience.firstName, "", 60), jobRole: cleanText(value.audience.jobRole, "", 100), company: company?.name ? company : null } : { firstName: "", jobRole: "", company: null };
-  return { schemaVersion: 1, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), selectedBlockId: selected, audience, blocks };
+  const audienceReady = Boolean(audience.firstName && audience.jobRole && audience.company);
+  const storedOnboarding = isRecord(value.onboarding) ? value.onboarding : null;
+  const storedProposal = storedOnboarding && isRecord(storedOnboarding.proposal)
+    ? {
+        summary: cleanText(storedOnboarding.proposal.summary, "", 400),
+        sections: Array.isArray(storedOnboarding.proposal.sections) ? storedOnboarding.proposal.sections.flatMap((section): string[] => typeof section === "string" && section.trim() ? [section.trim().slice(0, 120)] : []).slice(0, 8) : [],
+        primaryAction: cleanText(storedOnboarding.proposal.primaryAction, "", 180),
+      }
+    : null;
+  const proposal = storedProposal?.summary && storedProposal.sections.length && storedProposal.primaryAction ? storedProposal : null;
+  const requestedStage = storedOnboarding?.stage;
+  const stage: OnboardingStage = !audienceReady
+    ? "audience_required"
+    : blocks.length || requestedStage === "composition_ready" && proposal
+      ? "composition_ready"
+      : "proposal_required";
+  return { schemaVersion: 2, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), selectedBlockId: selected, audience, onboarding: { stage, proposal }, blocks };
 }
 
 export function loadWorkspace(): Workspace {
@@ -172,6 +191,11 @@ export function loadWorkspace(): Workspace {
     const stored = window.localStorage.getItem(WORKSPACE_KEY);
     if (stored) {
       const workspace = normalizeWorkspace(JSON.parse(stored));
+      if (workspace) return workspace;
+    }
+    const previous = window.localStorage.getItem(LEGACY_WORKSPACE_KEY);
+    if (previous) {
+      const workspace = normalizeWorkspace(JSON.parse(previous));
       if (workspace) return workspace;
     }
     const legacy = window.localStorage.getItem(LEGACY_REPORTS_KEY);
@@ -231,7 +255,6 @@ export function applyOperations(current: Workspace, operations: WorkspaceOperati
   const changes: string[] = [];
   for (const operation of operations.slice(0, 16)) {
     if (operation.op === "inspect") continue;
-    if (operation.op === "setAudience") { workspace.audience = { firstName: cleanText(operation.firstName, "", 60), jobRole: cleanText(operation.jobRole, "", 100), company: { id: Math.max(1, Math.floor(operation.companyId)), name: cleanText(operation.companyName, "", 120) } }; changes.push("Set the page audience to " + workspace.audience.firstName + ", " + workspace.audience.jobRole + " at " + workspace.audience.company.name + "."); continue; }
     if (operation.op === "reset") { workspace.blocks = []; workspace.selectedBlockId = null; changes.push("Reset the page."); continue; }
     if (operation.op === "undo") continue;
     if (operation.op === "addHtml") {

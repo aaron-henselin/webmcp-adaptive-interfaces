@@ -31,11 +31,12 @@ On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the 
 
 Steam Desk exposes two focused demos: the root route is a catalog grid with a saved-report library and one active report surface; `/builder` is the composable local page canvas.
 
-The report-library demo registers three WebMCP tools and exposes only `steam_catalog`. The builder also exposes customer engagement tables around the Steam products and registers `search_game_companies` and `compose_page`. Company search returns ranked developer/publisher candidates from D1; the agent must present those candidates and wait for the user to select the closest match. `compose_page` adds HTML widgets or tabs, selects/configures/removes blocks, changes widths, and moves blocks semantically.
+The report-library demo registers three WebMCP tools and exposes only `steam_catalog`. The builder opens with a full-screen invitation to say “onboard me.” That phrase, or a natural equivalent such as “set me up” or “get started,” directs the agent to call `onboard_audience`. The tool surveys name, company, and role; resolves strong company typos against D1; and asks the user only when candidates are ambiguous. After saving the audience, the agent must propose the most useful page and receive approval through the temporary `request_page_composition` handoff before `compose_page` unlocks.
 
 - Demo 1: `describe_steam_catalog` returns Steam catalog field metadata.
 - Demo 2: `describe_page_data` returns both the Steam product catalog and customer engagement fields, current shared filters, and the page outline.
-- `search_game_companies` full-text searches catalog companies and returns candidates without choosing one for the user.
+- `onboard_audience` runs and submits the conversational survey, resolves company names, and stores the audience locally.
+- `request_page_composition` appears after audience submission and records the user-approved page proposal before creation.
 - `create_report` executes a bounded database report and places it inline on the page.
 - `render_report` recreates an inline report as Markdown or a PNG.
 
@@ -51,4 +52,4 @@ The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`.
 
 - Local environment files, D1 state, generated imports, dependencies, and raw source data are ignored.
 - `.openai/hosting.json` declares the Sites-managed D1 binding.
-- The versioned page document is stored in browser local storage. Reports rerun against D1 inline. Demo 2 returns an explicit composition guide through WebMCP. Before creating a page it requires WebMCP to collect the user-confirmed first name and job role, search catalog companies, and locally store the exact company candidate selected by the user through `setAudience`. Widgets then resolve safe greeting, name, role, company, date, page, and catalog bindings from that context.
+- The versioned page document is stored in browser local storage. Reports rerun against D1 inline. Demo 2 returns an explicit composition guide through WebMCP. Before creating a page it requires WebMCP to invoke onboarding, ask the name/company/role survey, save an exact or high-confidence corrected catalog company, propose the most useful page, and record the user's approval. Widgets then resolve safe greeting, name, role, company, date, page, and catalog bindings from that context.

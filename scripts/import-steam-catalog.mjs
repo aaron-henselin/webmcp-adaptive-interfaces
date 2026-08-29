@@ -224,7 +224,7 @@ async function writeGameChunk(output, games, dimensions) {
 async function buildImport(options, profile) {
   await mkdir(path.dirname(options.output), { recursive: true });
   const output = createWriteStream(options.output, { encoding: "utf8" });
-  await writeText(output, "DELETE FROM company_search;\nDELETE FROM companies;\nDELETE FROM game_search;\nDELETE FROM game_languages;\nDELETE FROM game_tags;\nDELETE FROM game_categories;\nDELETE FROM game_genres;\nDELETE FROM game_publishers;\nDELETE FROM game_developers;\nDELETE FROM games;\nDELETE FROM languages;\nDELETE FROM tags;\nDELETE FROM categories;\nDELETE FROM genres;\nDELETE FROM publishers;\nDELETE FROM developers;\nDELETE FROM catalog_imports;\n");
+  await writeText(output, "DELETE FROM company_search_grams;\nDELETE FROM company_search;\nDELETE FROM companies;\nDELETE FROM game_search;\nDELETE FROM game_languages;\nDELETE FROM game_tags;\nDELETE FROM game_categories;\nDELETE FROM game_genres;\nDELETE FROM game_publishers;\nDELETE FROM game_developers;\nDELETE FROM games;\nDELETE FROM languages;\nDELETE FROM tags;\nDELETE FROM categories;\nDELETE FROM genres;\nDELETE FROM publishers;\nDELETE FROM developers;\nDELETE FROM catalog_imports;\n");
   await writeDimensions(output, profile.dimensions);
   let pending = [];
   await scan(options.input, options.maxRecords, async (game) => {
@@ -256,6 +256,13 @@ async function buildImport(options, profile) {
     "  )",
     "FROM company_names;",
     "INSERT INTO company_search (company_id, name) SELECT id, name FROM companies;",
+    "WITH RECURSIVE company_grams(company_id, name, position) AS (",
+    "  SELECT id, lower(trim(name)), 1 FROM companies WHERE length(trim(name)) >= 3",
+    "  UNION ALL",
+    "  SELECT company_id, name, position + 1 FROM company_grams WHERE position + 2 < length(name)",
+    ")",
+    "INSERT OR IGNORE INTO company_search_grams (company_id, gram)",
+    "SELECT company_id, substr(name, position, 3) FROM company_grams;",
     "",
   ].join("\n"));
   await writeText(output, insert("catalog_imports", ["schema_version", "source_filename", "source_sha256", "imported_at", "record_count"], [[SCHEMA_VERSION, path.basename(options.input), profile.sha256, new Date().toISOString(), profile.count]]));

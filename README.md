@@ -40,9 +40,10 @@ The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog
 - `create_report` executes a bounded database report and places it inline on the page.
 - `render_report` recreates an inline report as Markdown or a PNG.
 - Storefront Demo: `describe_storefront` documents the public catalog, personalization capabilities, and privacy boundary without reading library data.
-- `recommend_storefront` is read-only, defaults to no taste personalization, filters owned games inside the page, and returns only public game records plus an exclusion count.
+- `recommend_storefront` is retrieval-only, defaults to no taste personalization, supports reference/include/preferred/excluded-tag intent scoring, filters owned games inside the page, and returns only public game records plus an exclusion count.
+- `curate_storefront_results` separately stages a headline, summary, featured badges, per-game reasons, and ordering after validating every app ID against the originating recommendation.
 - `get_taste_profile` prepares private personalization only after explicit user opt-in and only for a game the user is choosing or buying for themselves; gifts, other people, groups, and unclear recipients default to no taste personalization. It never returns the library or profile; `exclude_owned_games` returns only a count.
-- `apply_storefront_results` optionally applies a recommendation to session-scoped search, filters, ranking, and layout.
+- `apply_storefront_results` optionally applies a recommendation to session-scoped search, filters, ranking, editorial presentation, and layout, then reports the featured and visible app IDs after rendering completes.
 - `save_storefront_facet` stores a removable local browser preference; `remove_storefront_facet` removes one.
 
 Genre, tag, category, developer, publisher, and language reports use the analytics `explode` operation before grouping. Weighted tag reports can also use `tagWeight`.

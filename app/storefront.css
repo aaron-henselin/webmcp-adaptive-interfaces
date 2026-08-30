@@ -71,6 +71,25 @@
 .storefront-results-bar > div:last-child { display: flex; align-items: center; gap: 9px; }
 .storefront-results-bar b { padding: 6px 9px; border-radius: 6px; color: #287699; background: #e4f2f8; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 
+.store-featured { padding: 18px 16px 6px; border-bottom: 1px solid #dbe4e8; background: linear-gradient(180deg, #edf7fb, #f8fafb); }
+.store-featured-heading { margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+.store-featured-heading span { color: #28799c; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
+.store-featured-heading h3 { margin: 0; color: #203b48; font-size: 15px; font-weight: 640; }
+.store-featured-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.store-featured-card { min-width: 0; overflow: hidden; display: grid; grid-template-columns: minmax(180px,.9fr) minmax(220px,1.1fr); border: 1px solid #a9cddd; border-radius: 11px; background: white; box-shadow: 0 10px 24px rgba(31,79,102,.1); }
+.store-featured-card.is-owned { border-color: #9ccdb8; }
+.store-featured-card .store-art { height: 100%; min-height: 210px; aspect-ratio: auto; }
+.store-featured-copy { min-width: 0; padding: 15px; display: flex; flex-direction: column; align-items: flex-start; }
+.store-featured-badge { padding: 5px 8px; border-radius: 999px; color: #fff; background: #247da3; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .07em; text-transform: uppercase; }
+.store-featured-copy > div:nth-child(2) { margin-top: 13px; min-width: 0; }
+.store-featured-copy > div:nth-child(2) > span { color: #5e8193; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.store-featured-copy h3 { margin: 6px 0 0; color: #172b36; font-size: 19px; font-weight: 650; line-height: 1.15; letter-spacing: -.025em; }
+.store-featured-copy > div:nth-child(2) > p { margin: 5px 0 0; color: #84919a; font-size: 9px; }
+.store-featured-reason { margin: 14px 0; color: #526c79; font-size: 10px; line-height: 1.55; }
+.store-featured-reason b { display: block; margin-bottom: 4px; color: #245f7a; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.store-featured-action { width: 100%; margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.store-featured-action > strong { color: #203944; font: 650 11px/1 "Cascadia Mono", ui-monospace, monospace; }
+
 .store-skeleton { min-height: 410px; }
 .store-skeleton-grid { padding: 16px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .store-skeleton-list, .store-skeleton-ranking { padding: 12px 16px; display: grid; gap: 8px; }
@@ -178,6 +197,7 @@
 .store-pagination button:disabled { color: #b6c0c6; cursor: default; }
 
 @media (max-width: 1180px) {
+  .store-featured-grid { grid-template-columns: 1fr; }
   .store-grid, .store-skeleton-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .store-rank-item { grid-template-columns: 38px auto minmax(160px,1fr) 82px auto; }
   .store-rank-evidence, .store-skeleton-ranking .store-skeleton-metrics { display: none; }
@@ -212,6 +232,9 @@
   .storefront-facets { min-height: 0; border-right: 0; border-bottom: 1px solid #d3dde2; }
   .storefront-facets fieldset { padding: 13px 15px; }
   .facet-chips { max-height: 58px; overflow: hidden; }
+  .store-featured { padding: 14px 10px 5px; }
+  .store-featured-card { grid-template-columns: 1fr; }
+  .store-featured-card .store-art { min-height: 0; aspect-ratio: 460/215; }
   .store-grid, .store-skeleton-grid { padding: 10px; grid-template-columns: 1fr; }
   .store-list, .store-ranking, .store-skeleton-list, .store-skeleton-ranking { padding: 8px; }
   .store-list-item { grid-template-columns: 92px minmax(0,1fr); }

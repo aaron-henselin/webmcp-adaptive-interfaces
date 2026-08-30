@@ -287,7 +287,7 @@ function RankingItem({ game, rank, highlights, inLibrary, adding, onAdd }: GameV
   return <article className={"store-rank-item" + (inLibrary ? " is-owned" : "")}>
     <div className="store-rank-number">{String(rank).padStart(2, "0")}</div><GameArtwork game={game} compact />
     <div className="store-rank-copy"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
-    <div className="store-rank-evidence">{visible.slice(0, 3).map((field) => <span key={field}><b>{metricValue(game, field)}</b><small>{field === "publisher" ? "publisher" : fieldLabel(field as StorefrontNumericField)}</small></span>)}</div>
+    <div className="store-rank-evidence">{visible.slice(0, 3).map((field) => <span key={field}><b>{metricValue(game, field)}</b><small>{field === "publisher" ? "publisher" : fieldLabel(field as StorefrontRankingField)}</small></span>)}</div>
     <div className="store-rank-score"><span><i style={{ width: score + "%" }} /></span><b>{score}</b><small>fit score</small></div>
     <div className="store-rank-action"><strong>{formatPrice(game.priceCents)}</strong><BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} /></div>
   </article>;
@@ -912,10 +912,13 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   }, [appliedRecommendation, catalog]);
   const editorial = presentation?.editorial;
   const featuredById = useMemo(() => new Map((editorial?.featured ?? []).map((item) => [item.appId, item])), [editorial]);
-  const featuredGames = useMemo(() => games.flatMap((game) => {
-    const item = featuredById.get(game.id);
-    return item ? [{ game, editorial: item }] : [];
-  }), [featuredById, games]);
+  const featuredGames = useMemo(() => {
+    const gamesById = new Map(games.map((game) => [game.id, game]));
+    return (editorial?.featured ?? []).flatMap((item) => {
+      const game = gamesById.get(item.appId);
+      return game ? [{ game, editorial: item }] : [];
+    });
+  }, [editorial, games]);
   const algorithmicGames = useMemo(() => games.filter((game) => !featuredById.has(game.id)), [featuredById, games]);
   const visibleAppIds = useMemo(() => [...featuredGames.map((item) => item.game.id), ...algorithmicGames.map((game) => game.id)], [algorithmicGames, featuredGames]);
   const total = appliedRecommendation ? games.length : catalog?.query.total ?? 0;
@@ -971,7 +974,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
 
       {presentation ? <section className={"result-briefing mode-" + presentation.mode} aria-labelledby="result-briefing-title">
         <div><span>Composed by your browser</span><h2 id="result-briefing-title">{presentation.title}</h2><p>{presentation.explanation}</p></div>
-        <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontNumericField)).join(" · ") : "Visual discovery"}</span>}{presentation.excludeOwned && ownedExclusions.length ? <span>{ownedExclusions.length} owned games excluded</span> : null}</div>
+        <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontRankingField)).join(" · ") : "Visual discovery"}</span>}{presentation.excludeOwned && ownedExclusions.length ? <span>{ownedExclusions.length} owned games excluded</span> : null}</div>
       </section> : null}
 
       <div className="storefront-body">

@@ -15,8 +15,9 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 | `describe_storefront` | Public schema, capabilities, and safety rules | Does not read or return library data | None |
 | `exclude_owned_games` | `excludedCount` only | Matches public candidate IDs inside the page; returns no owned IDs or titles | None |
 | `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in and a game the user is choosing or buying for themselves; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
-| `recommend_storefront` | Public game records, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | None |
-| `apply_storefront_results` | A compact application receipt | Reads no additional personal data | Changes only session-scoped filters, ranking, and layout |
+| `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | None |
+| `curate_storefront_results` | A validated editorial-curation receipt | Uses only public app IDs from the original recommendation set | None; stages headline, summary, featured badges, reasons, and ordering |
+| `apply_storefront_results` | A render-completion receipt with featured and visible app IDs | Reads no additional personal data | Changes only session-scoped filters, ranking, editorial presentation, and layout |
 | `save_storefront_facet` | The saved local facet | Reads no library data | Saves a removable browser preference |
 | `remove_storefront_facet` | The removed facet ID | Reads no library data | Removes one browser preference |
 
@@ -26,19 +27,63 @@ The deprecated `get_storefront_library` and `search_storefront` tools are no lon
 
 For an ordinary discovery, comparison, or ranking request:
 
-1. Call `recommend_storefront` with `personalization: "none"`. Do not call `get_taste_profile`.
+1. Call `recommend_storefront` with `personalization: "none"`. Do not call `get_taste_profile`. For similarity requests, express the reference separately and supply positive, preferred, and excluded tags.
 2. Keep `excludeOwnedLocally: true` unless the user asks to include owned games. Matching happens inside the page and only the count is returned. When the library is empty, this path immediately skips owned-data matching.
 3. Present the returned public game records.
-4. Call `apply_storefront_results` with the returned `recommendationId` only when the user asked to change the visible storefront.
+4. If an editorial presentation is useful, call `curate_storefront_results` with only app IDs returned by that recommendation.
+5. Call `apply_storefront_results` with the returned `recommendationId` only when the user asked to change the visible storefront. It resolves after the summary, featured cards, and ordered list have rendered.
 
 Example:
 
 ```json
 {
-  "query": "family-friendly Mario-like platformers",
+  "query": "platformers",
+  "reference": "Super Mario",
+  "includeTags": ["3D Platformer", "Collectathon", "Colorful"],
+  "preferredTags": ["Family Friendly", "Cute"],
+  "excludeTags": ["Battle Royale", "FPS", "MMO"],
+  "ranking": {
+    "factors": [
+      { "field": "intentFit", "weight": 0.7, "direction": "higher" },
+      { "field": "positiveRatio", "weight": 0.3, "direction": "higher" }
+    ]
+  },
   "personalization": "none",
   "recipientContext": "unspecified",
   "excludeOwnedLocally": true
+}
+```
+
+The include tags require at least one relevant match, excluded tags are hard exclusions, and `intentFit` and `tagCoverage` keep weak but popular matches from dominating the list.
+
+Editorial curation is a separate call:
+
+```json
+{
+  "recommendationId": "store-rec-...",
+  "headline": "Best Mario-like games",
+  "summary": "Colorful, approachable platformers centered on exploration and collecting.",
+  "featured": [
+    {
+      "appId": 253230,
+      "badge": "Best overall",
+      "reason": "The closest match to Mario’s 3D platforming and collectathon structure."
+    }
+  ],
+  "orderedAppIds": [253230, 1586800, 969990]
+}
+```
+
+Every ID in `featured` and `orderedAppIds` is rejected unless it came from the original recommendation. Recommendation IDs remain valid for the document session until `clear_storefront_search` or the visible Clear control resets the search.
+
+After the committed render, `apply_storefront_results` returns:
+
+```json
+{
+  "rendered": true,
+  "featuredAppIds": [253230],
+  "visibleAppIds": [253230, 1586800, 969990],
+  "summaryVisible": true
 }
 ```
 
@@ -68,7 +113,7 @@ The derived genres and tags remain in page memory. They may influence the public
 
 ## Registration lifecycle
 
-The storefront registers its WebMCP tools from one mount-only effect. Tool implementations read current catalog and local state through refs, so ordinary React renders and catalog updates do not unregister and recreate tools or freeze old snapshots into their closures.
+The storefront registers each WebMCP tool once per model context for the document lifetime. A current-page bridge supplies live catalog and UI state across React renders or remounts, while recommendation records remain in document memory until the search is explicitly cleared.
 
 ## Remaining safety boundary
 

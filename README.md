@@ -41,7 +41,7 @@ The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog
 - `render_report` recreates an inline report as Markdown or a PNG.
 - Storefront Demo: `describe_storefront` documents the public catalog, personalization capabilities, and privacy boundary without reading library data.
 - `recommend_storefront` is read-only, defaults to no taste personalization, filters owned games inside the page, and returns only public game records plus an exclusion count.
-- `get_taste_profile` prepares private personalization only after explicit user opt-in and never returns the library or profile; `exclude_owned_games` returns only a count.
+- `get_taste_profile` prepares private personalization only after explicit user opt-in and only for a game the user is choosing or buying for themselves; gifts, other people, groups, and unclear recipients default to no taste personalization. It never returns the library or profile; `exclude_owned_games` returns only a count.
 - `apply_storefront_results` optionally applies a recommendation to session-scoped search, filters, ranking, and layout.
 - `save_storefront_facet` stores a removable local browser preference; `remove_storefront_facet` removes one.
 

@@ -14,7 +14,7 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 | --- | --- | --- | --- |
 | `describe_storefront` | Public schema, capabilities, and safety rules | Does not read or return library data | None |
 | `exclude_owned_games` | `excludedCount` only | Matches public candidate IDs inside the page; returns no owned IDs or titles | None |
-| `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
+| `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in and a game the user is choosing or buying for themselves; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
 | `recommend_storefront` | Public game records, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | None |
 | `apply_storefront_results` | A compact application receipt | Reads no additional personal data | Changes only session-scoped filters, ranking, and layout |
 | `save_storefront_facet` | The saved local facet | Reads no library data | Saves a removable browser preference |
@@ -37,6 +37,7 @@ Example:
 {
   "query": "family-friendly Mario-like platformers",
   "personalization": "none",
+  "recipientContext": "unspecified",
   "excludeOwnedLocally": true
 }
 ```
@@ -55,11 +56,13 @@ The response never includes the underlying library or taste profile.
 
 ## Explicit taste personalization
 
-Only offer taste personalization as an explicit choice, for example:
+The library taste profile applies only when the user is choosing or buying the recommended game for themselves. Never use it for a gift, a friend or relative, a child, a household or group, or when the intended recipient is unclear. Those requests must keep `personalization: "none"`; owned-game filtering remains a separate local-only feature.
 
-> Use my locally saved game library to personalize these recommendations.
+Only offer taste personalization in an eligible self-directed request, as an explicit choice, for example:
 
-After the user agrees, call `get_taste_profile` with `userConfirmed: true`, then call `recommend_storefront` with `personalization: "local_library"`. If the local library is empty, `get_taste_profile` returns `ready: false` without querying owned catalog records.
+> Use my locally saved game library to personalize recommendations for a game I'm choosing for myself.
+
+After the user agrees, call `get_taste_profile` with `userConfirmed: true` and `forSelf: true`, then call `recommend_storefront` with `personalization: "local_library"` and `recipientContext: "self"`. Both tools reject local-library taste personalization unless the self-directed context is explicit. If the local library is empty, `get_taste_profile` returns `ready: false` without querying owned catalog records.
 
 The derived genres and tags remain in page memory. They may influence the public catalog query, but neither they nor the source games are returned to the agent.
 

@@ -50,7 +50,8 @@ const RECOMMEND_SCHEMA = {
     minReviewCount: { type: "integer", minimum: 0, maximum: 10000000 },
     sort: { type: "string", enum: SORTS },
     direction: { type: "string", enum: ["asc", "desc"] },
-    personalization: { type: "string", enum: ["none", "local_library"], default: "none", description: "Use none by default. Use local_library only after get_taste_profile succeeds following the user's explicit opt-in." },
+    personalization: { type: "string", enum: ["none", "local_library"], default: "none", description: "Use none by default. Use local_library only after get_taste_profile succeeds following the user's explicit opt-in for a game they are choosing or buying for themselves." },
+    recipientContext: { type: "string", enum: ["self", "someone_else", "shared_group", "unspecified"], default: "unspecified", description: "Use self only when the user is choosing or buying the game for themselves. For gifts, another person, a household or group, or an unclear recipient, use the matching non-self value and keep personalization set to none." },
     excludeOwnedLocally: { type: "boolean", default: true, description: "Filter owned app IDs entirely inside the page. No owned IDs or titles are returned." },
     presentation: {
       type: "object", additionalProperties: false,
@@ -106,8 +107,9 @@ const TASTE_PROFILE_SCHEMA = {
   additionalProperties: false,
   properties: {
     userConfirmed: { type: "boolean", description: "Must be true only after the user explicitly agrees to use the locally saved library for personalization." },
+    forSelf: { type: "boolean", description: "Must be true only when the user is choosing or buying the recommended game for themselves. Keep false for gifts, other people, households, groups, or an unclear recipient." },
   },
-  required: ["userConfirmed"],
+  required: ["userConfirmed", "forSelf"],
 };
 
 const FACET_SCHEMA = {
@@ -443,7 +445,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
               personalization: {
                 default: "none",
                 ownedFiltering: "Local-only; returns only excludedOwnedCount.",
-                tasteProfile: "Explicit opt-in through get_taste_profile; profile data remains inside the page.",
+                tasteProfile: "Available only with explicit opt-in when the user is choosing or buying a game for themselves; profile data remains inside the page.",
               },
               safetyBoundary: {
                 environment: "local storefront demonstration",
@@ -455,7 +457,8 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
               guidance: [
                 "Call recommend_storefront with personalization none by default. Do not access taste data for an ordinary recommendation.",
                 "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
-                "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for personalization. The profile remains private inside the page.",
+                "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
+                "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
                 "recommend_storefront returns public game records and an opaque recommendationId without changing the UI.",
                 "Call apply_storefront_results only when the user asked to update the visible storefront, using the recommendationId returned by recommend_storefront.",
                 "Use save_storefront_facet only for a user-requested reusable facet and provide non-overlapping numeric bands.",
@@ -483,7 +486,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
       },
       {
         name: "get_taste_profile",
-        description: "Privately prepare a taste profile inside the page only after the user explicitly agrees to use the locally saved game library for personalization. This tool never returns owned titles, app IDs, playtime, preferences, or the derived profile. Do not call it for default recommendations.",
+        description: "Privately prepare a taste profile inside the page only after the user explicitly agrees and only when they are choosing or buying the recommended game for themselves. Never use it for gifts, another person, a household or group, or an unclear recipient. This tool never returns owned titles, app IDs, playtime, preferences, or the derived profile.",
         inputSchema: TASTE_PROFILE_SCHEMA,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -491,6 +494,11 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             isError: true,
             content: [{ type: "text", text: "Explicit user agreement is required before local-library taste profiling." }],
             structuredContent: { ok: false, code: "PERSONALIZATION_CONFIRMATION_REQUIRED" },
+          };
+          if (input.forSelf !== true) return {
+            isError: true,
+            content: [{ type: "text", text: "Library taste profiling is available only when the user is choosing or buying a game for themselves. Use no taste personalization for gifts, other people, groups, or unclear recipients." }],
+            structuredContent: { ok: false, code: "SELF_PURCHASE_CONTEXT_REQUIRED" },
           };
           const ids = [...libraryRef.current].slice(0, 100);
           if (!ids.length) {
@@ -517,11 +525,17 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
       },
       {
         name: "recommend_storefront",
-        description: "Read the public Steam catalog and return public game recommendations without changing the storefront UI. Personalization defaults to none. Set personalization to local_library only after get_taste_profile succeeds following explicit user opt-in. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, or taste data are disclosed.",
+        description: "Read the public Steam catalog and return public game recommendations without changing the storefront UI. Personalization defaults to none. Set personalization to local_library only after get_taste_profile succeeds following explicit user opt-in and only when recipientContext is self. Use none for gifts, other people, groups, or an unclear recipient. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
           const personalization = input.personalization === "local_library" ? "local_library" : "none";
+          const recipientContext = input.recipientContext === "self" || input.recipientContext === "someone_else" || input.recipientContext === "shared_group" ? input.recipientContext : "unspecified";
+          if (personalization === "local_library" && recipientContext !== "self") return {
+            isError: true,
+            content: [{ type: "text", text: "Local-library taste personalization is limited to games the user is choosing or buying for themselves. Use personalization none for gifts, other people, groups, or an unclear recipient." }],
+            structuredContent: { ok: false, code: "SELF_PURCHASE_CONTEXT_REQUIRED", recipientContext },
+          };
           const profile = personalization === "local_library" ? privateTasteProfileRef.current : null;
           if (personalization === "local_library" && !profile) return {
             isError: true,
@@ -574,6 +588,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
                 ok: true,
                 recommendationId,
                 personalization,
+                recipientContext,
                 results: result.games.map(publicGame),
                 excludedOwnedCount,
               },

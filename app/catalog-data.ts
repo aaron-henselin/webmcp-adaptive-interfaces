@@ -1,3 +1,7 @@
+export type StorefrontNumericField = "positiveRatio" | "reviewCount" | "priceCents" | "ownersMax" | "ccu" | "averageForever" | "releaseYear";
+export type StorefrontRankingFactor = { field: StorefrontNumericField; weight: number; direction: "higher" | "lower"; label?: string };
+export type StorefrontNumericFilter = { field: StorefrontNumericField; min?: number; max?: number };
+
 export type CatalogGame = {
   id: number;
   title: string;
@@ -21,6 +25,7 @@ export type CatalogGame = {
   median2Weeks: number;
   releaseDate: string | null;
   releaseYear: number | null;
+  rankScore?: number | null;
   genres: string[];
   tags: string[];
 };
@@ -33,7 +38,7 @@ export type CatalogPage = {
     sourceFilename: string;
     sourceSha256: string;
   };
-  query: { total: number; page: number; pageSize: number };
+  query: { total: number; page: number; pageSize: number; ranked?: boolean };
   games: CatalogGame[];
   distributions: Record<"owners" | "reviews" | "price", Array<{ label: string; value: number }>>;
   facets: { genres: Array<{ label: string; value: number }>; tags: Array<{ label: string; value: number }> };
@@ -43,10 +48,16 @@ export type CatalogPageOptions = {
   search: string;
   ownerBand: string;
   priceBand: string;
-  sort: "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
+  sort: "ownersMax" | "title" | "priceCents" | "positiveRatio" | "reviewCount" | "ccu" | "releaseYear";
   direction: "asc" | "desc";
   page: number;
   pageSize: number;
+  genre?: string;
+  tag?: string;
+  minPositiveRatio?: number;
+  minReviewCount?: number;
+  numericFilters?: StorefrontNumericFilter[];
+  ranking?: StorefrontRankingFactor[];
 };
 
 export type GameCompany = {
@@ -94,6 +105,12 @@ export async function loadCatalogPage(options: CatalogPageOptions, signal?: Abor
     page: String(options.page),
     pageSize: String(options.pageSize),
   });
+  if (options.genre) params.set("genre", options.genre);
+  if (options.tag) params.set("tag", options.tag);
+  if (options.minPositiveRatio !== undefined) params.set("minPositiveRatio", String(options.minPositiveRatio));
+  if (options.minReviewCount !== undefined) params.set("minReviewCount", String(options.minReviewCount));
+  if (options.numericFilters?.length) params.set("numericFilters", JSON.stringify(options.numericFilters));
+  if (options.ranking?.length) params.set("ranking", JSON.stringify(options.ranking));
   const response = await fetch(`/api/catalog?${params}`, { signal, cache: "no-store" });
   const value = await response.json() as CatalogPage | { error?: string };
   if (!response.ok) throw new Error("error" in value && value.error ? value.error : `Catalog request failed with status ${response.status}.`);

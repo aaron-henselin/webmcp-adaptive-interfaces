@@ -2,7 +2,7 @@ import "./demo-switcher.css";
 import type { ReactNode } from "react";
 
 export type WebMcpStatus = "checking" | "connected" | "preview";
-type DemoSwitcherProps = { active: "reports" | "builder"; children?: ReactNode };
+type DemoSwitcherProps = { active: "reports" | "builder" | "store"; children?: ReactNode };
 
 export function webMcpStatusLabel(status: WebMcpStatus) {
   return status === "connected" ? "WebMCP connected" : status === "preview" ? "WebMCP preview" : "WebMCP connecting";
@@ -22,6 +22,12 @@ const demos = [
     number: "02",
     title: "Dashboard Demo",
     description: "Create an entire personal dashboard, tailored to your role",
+  },  {
+    id: "store" as const,
+    href: "/store",
+    number: "03",
+    title: "Storefront Demo",
+    description: "Let your intent reshape how a catalog is browsed",
   },
 ];
 

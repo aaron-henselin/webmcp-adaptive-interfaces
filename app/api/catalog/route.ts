@@ -25,16 +25,73 @@ const SORT_FIELDS = {
   title: "g.name COLLATE NOCASE",
   priceCents: "g.price_cents",
   positiveRatio: "g.positive_ratio",
+  reviewCount: "g.review_count",
   ccu: "g.peak_ccu",
+  releaseYear: "g.release_year",
 } as const;
+
+const NUMERIC_FIELDS = {
+  positiveRatio: "g.positive_ratio",
+  reviewCount: "g.review_count",
+  priceCents: "g.price_cents",
+  ownersMax: "g.owners_max",
+  ccu: "g.peak_ccu",
+  averageForever: "g.average_forever",
+  releaseYear: "g.release_year",
+} as const;
+
+const RANK_NORMALIZERS: Record<keyof typeof NUMERIC_FIELDS, string> = {
+  positiveRatio: "COALESCE(g.positive_ratio, 0)",
+  reviewCount: "MIN(CAST(g.review_count AS REAL) / 100000.0, 1)",
+  priceCents: "MIN(CAST(g.price_cents AS REAL) / 7000.0, 1)",
+  ownersMax: "MIN(CAST(g.owners_max AS REAL) / 200000000.0, 1)",
+  ccu: "MIN(CAST(g.peak_ccu AS REAL) / 500000.0, 1)",
+  averageForever: "MIN(CAST(g.average_forever AS REAL) / 10000.0, 1)",
+  releaseYear: "MAX(0, MIN((COALESCE(g.release_year, 1990) - 1990) / 40.0, 1))",
+};
 
 function boundedInteger(value: string | null, fallback: number, minimum: number, maximum: number) {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
 }
 
+function boundedNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
+}
+
 function ftsQuery(value: string) {
   return (value.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 8).map((token) => `"${token.replaceAll('"', '""')}"*`).join(" AND ");
+}
+
+function parseArray(value: string | null) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function rankingExpression(value: string | null) {
+  const factors = parseArray(value).slice(0, 5);
+  const terms: string[] = [];
+  let totalWeight = 0;
+  for (const factor of factors) {
+    if (!factor || typeof factor !== "object") continue;
+    const item = factor as Record<string, unknown>;
+    const field = String(item.field ?? "") as keyof typeof NUMERIC_FIELDS;
+    if (!(field in NUMERIC_FIELDS)) continue;
+    const weight = boundedNumber(item.weight, 0, 0, 1);
+    if (!weight) continue;
+    const normalized = RANK_NORMALIZERS[field];
+    const term = item.direction === "lower" ? `(1 - (${normalized}))` : `(${normalized})`;
+    terms.push(`(${weight.toFixed(4)} * ${term})`);
+    totalWeight += weight;
+  }
+  if (!terms.length || totalWeight <= 0) return null;
+  return `(${terms.join(" + ")}) / ${totalWeight.toFixed(4)}`;
 }
 
 function filters(params: URLSearchParams) {
@@ -43,6 +100,11 @@ function filters(params: URLSearchParams) {
   const search = ftsQuery((params.get("search") ?? "").slice(0, 120));
   const ownerBand = (params.get("ownerBand") ?? "All owner ranges").slice(0, 40);
   const priceBand = (params.get("priceBand") ?? "All prices").slice(0, 30);
+  const genre = (params.get("genre") ?? "").slice(0, 80);
+  const tag = (params.get("tag") ?? "").slice(0, 80);
+  const minPositiveRatio = boundedNumber(params.get("minPositiveRatio"), -1, -1, 1);
+  const minReviewCount = boundedInteger(params.get("minReviewCount"), -1, -1, 10_000_000);
+
   if (search) {
     clauses.push("g.app_id IN (SELECT CAST(app_id AS INTEGER) FROM game_search WHERE game_search MATCH ?)");
     values.push(search);
@@ -55,10 +117,44 @@ function filters(params: URLSearchParams) {
     clauses.push(`${PRICE_BAND_SQL} = ?`);
     values.push(priceBand);
   }
+  if (genre) {
+    clauses.push("EXISTS (SELECT 1 FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id AND ge.name = ?)");
+    values.push(genre);
+  }
+  if (tag) {
+    clauses.push("EXISTS (SELECT 1 FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id AND t.name = ?)");
+    values.push(tag);
+  }
+  if (minPositiveRatio >= 0) {
+    clauses.push("g.positive_ratio >= ?");
+    values.push(minPositiveRatio);
+  }
+  if (minReviewCount >= 0) {
+    clauses.push("g.review_count >= ?");
+    values.push(minReviewCount);
+  }
+
+  const numericFilters = parseArray(params.get("numericFilters")).slice(0, 8);
+  for (const filter of numericFilters) {
+    if (!filter || typeof filter !== "object") continue;
+    const item = filter as Record<string, unknown>;
+    const field = String(item.field ?? "") as keyof typeof NUMERIC_FIELDS;
+    if (!(field in NUMERIC_FIELDS)) continue;
+    const sqlField = NUMERIC_FIELDS[field];
+    if (item.min !== undefined && item.min !== null) {
+      clauses.push(`${sqlField} >= ?`);
+      values.push(boundedNumber(item.min, 0, -1_000_000_000, 1_000_000_000));
+    }
+    if (item.max !== undefined && item.max !== null) {
+      clauses.push(`${sqlField} < ?`);
+      values.push(boundedNumber(item.max, 0, -1_000_000_000, 1_000_000_000));
+    }
+  }
+
   return { sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", values };
 }
 
-function parseJsonArray(value: unknown) {
+function parseDbJsonArray(value: unknown) {
   if (typeof value !== "string") return [];
   try {
     const parsed = JSON.parse(value);
@@ -74,8 +170,9 @@ export async function GET(request: Request) {
     const page = boundedInteger(url.searchParams.get("page"), 0, 0, 100_000);
     const pageSize = boundedInteger(url.searchParams.get("pageSize"), 12, 1, 100);
     const sort = url.searchParams.get("sort") as keyof typeof SORT_FIELDS;
-    const sortSql = SORT_FIELDS[sort] ?? SORT_FIELDS.ownersMax;
-    const direction = url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
+    const rankingSql = rankingExpression(url.searchParams.get("ranking"));
+    const sortSql = rankingSql ? "rankScore" : SORT_FIELDS[sort] ?? SORT_FIELDS.ownersMax;
+    const direction = rankingSql ? "DESC" : url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
     const where = filters(url.searchParams);
     const database = catalogDb();
     const pageSql = `SELECT
@@ -101,6 +198,7 @@ export async function GET(request: Request) {
       g.median_2weeks AS median2Weeks,
       g.release_date AS releaseDate,
       g.release_year AS releaseYear,
+      ${rankingSql ?? "NULL"} AS rankScore,
       COALESCE((SELECT json_group_array(name) FROM (SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id ORDER BY ge.name)), '[]') AS genres,
       COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id ORDER BY gt.weight DESC, t.name LIMIT 12)), '[]') AS tags
     FROM games g
@@ -121,7 +219,7 @@ export async function GET(request: Request) {
     const [countResult, gamesResult, importResult, ownersResult, reviewsResult, priceResult, genresResult, tagsResult] = await database.batch(statements);
     const total = Number((countResult.results[0] as { total?: number } | undefined)?.total ?? 0);
     const imported = importResult.results[0] as Record<string, unknown> | undefined;
-    const games = (gamesResult.results as Array<Record<string, unknown>>).map((game) => ({ ...game, genres: parseJsonArray(game.genres), tags: parseJsonArray(game.tags) }));
+    const games = (gamesResult.results as Array<Record<string, unknown>>).map((game) => ({ ...game, genres: parseDbJsonArray(game.genres), tags: parseDbJsonArray(game.tags) }));
     return NextResponse.json({
       schemaVersion: "steam-desk.catalog-page/v1",
       meta: {
@@ -130,7 +228,7 @@ export async function GET(request: Request) {
         sourceFilename: String(imported?.sourceFilename ?? "games.json"),
         sourceSha256: String(imported?.sourceSha256 ?? ""),
       },
-      query: { total, page, pageSize },
+      query: { total, page, pageSize, ranked: Boolean(rankingSql) },
       games,
       distributions: { owners: ownersResult.results, reviews: reviewsResult.results, price: priceResult.results },
       facets: { genres: genresResult.results, tags: tagsResult.results },

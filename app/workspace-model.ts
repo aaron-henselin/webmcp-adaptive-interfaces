@@ -53,7 +53,7 @@ export type WorkspaceOperation =
 
 export const WORKSPACE_KEY = "steam-desk:workspace:v2";
 export const LEGACY_WORKSPACE_KEY = "steam-desk:workspace:v1";
-export const LEGACY_REPORTS_KEY = "steam-desk:saved-reports:v5";
+const DATA_TABLE_REPORTS_KEY = "steam-desk:saved-reports:v5";
 export const MAX_WORKSPACE_BLOCKS = 32;
 export const MAX_TABS = 6;
 export const MAX_HTML_LENGTH = 2_000;
@@ -187,24 +187,49 @@ export function normalizeWorkspace(value: unknown): Workspace | null {
   return { schemaVersion: 2, updatedAt: cleanText(value.updatedAt, new Date().toISOString(), 40), pageTitle: cleanText(value.pageTitle, "Untitled page", 100), selectedBlockId: selected, audience, onboarding: { stage, proposal }, blocks };
 }
 
+function dataTableReportIds() {
+  try {
+    const stored = window.localStorage.getItem(DATA_TABLE_REPORTS_KEY);
+    const reports: unknown = stored ? JSON.parse(stored) : [];
+    return new Set(Array.isArray(reports) ? reports.flatMap((report): string[] => isRecord(report) && typeof report.id === "string" ? [report.id] : []) : []);
+  } catch { return new Set<string>(); }
+}
+
+function removeDataTableReports(workspace: Workspace) {
+  const excludedIds = dataTableReportIds();
+  if (!excludedIds.size) return workspace;
+  let changed = false;
+  const blocks = workspace.blocks.flatMap((block): WorkspaceBlock[] => {
+    if (block.type === "report" && excludedIds.has(block.id)) { changed = true; return []; }
+    if (block.type !== "tabs") return [block];
+    const tabs = block.tabs.map((tab) => {
+      const tabBlocks = tab.blocks.filter((item) => item.type !== "report" || !excludedIds.has(item.id));
+      if (tabBlocks.length !== tab.blocks.length) changed = true;
+      return { ...tab, blocks: tabBlocks };
+    });
+    return [{ ...block, tabs }];
+  });
+  if (!changed) return workspace;
+  return { ...workspace, selectedBlockId: workspace.selectedBlockId && excludedIds.has(workspace.selectedBlockId) ? null : workspace.selectedBlockId, blocks };
+}
+
 export function loadWorkspace(): Workspace {
   try {
     const stored = window.localStorage.getItem(WORKSPACE_KEY);
     if (stored) {
       const workspace = normalizeWorkspace(JSON.parse(stored));
-      if (workspace) return workspace;
+      if (workspace) {
+        const cleaned = removeDataTableReports(workspace);
+        if (cleaned !== workspace) saveWorkspace(cleaned);
+        return cleaned;
+      }
     }
     const previous = window.localStorage.getItem(LEGACY_WORKSPACE_KEY);
     if (previous) {
       const workspace = normalizeWorkspace(JSON.parse(previous));
-      if (workspace) return workspace;
+      if (workspace) return removeDataTableReports(workspace);
     }
-    const legacy = window.localStorage.getItem(LEGACY_REPORTS_KEY);
-    const parsed = legacy ? JSON.parse(legacy) : [];
-    const reports = Array.isArray(parsed) ? parsed.flatMap((item): ReportBlock[] => {
-      const report = normalizeReport(item); return report ? [{ ...report, span: "full" }] : [];
-    }) : [];
-    return { ...emptyWorkspace(), blocks: reports.slice(0, MAX_WORKSPACE_BLOCKS) };
+    return emptyWorkspace();
   } catch { return emptyWorkspace(); }
 }
 

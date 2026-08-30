@@ -29,7 +29,7 @@ On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the 
 
 ## Site tools
 
-Steam Desk exposes two focused demos: the root route is the Data Table Demo, with a catalog grid, saved reports, and one active report surface; `/builder` is the composable Dashboard Demo.
+Steam Desk exposes three focused demos: the root route is the Data Table Demo, with a catalog grid, saved reports, and one active report surface; `/builder` is the composable Dashboard Demo; and `/store` is a local-only Storefront Demo with adaptive search, rankings, reusable facets, and a simulated library.
 
 The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog`. The Dashboard Demo opens with a full-screen invitation to say “onboard me.” That phrase, or a natural equivalent such as “set me up” or “get started,” directs the agent to call `onboard_audience`. The tool surveys name, company, and role; resolves strong company typos against D1; and asks the user only when candidates are ambiguous. After saving the audience, the agent must propose the most useful page and receive approval through the temporary `request_page_composition` handoff before `compose_page` unlocks.
 
@@ -39,6 +39,11 @@ The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog
 - `request_page_composition` appears after audience submission and records the user-approved page proposal before creation.
 - `create_report` executes a bounded database report and places it inline on the page.
 - `render_report` recreates an inline report as Markdown or a PNG.
+- Storefront Demo: `describe_storefront` documents the public catalog, personalization capabilities, and privacy boundary without reading library data.
+- `recommend_storefront` is read-only, defaults to no taste personalization, filters owned games inside the page, and returns only public game records plus an exclusion count.
+- `get_taste_profile` prepares private personalization only after explicit user opt-in and never returns the library or profile; `exclude_owned_games` returns only a count.
+- `apply_storefront_results` optionally applies a recommendation to session-scoped search, filters, ranking, and layout.
+- `save_storefront_facet` stores a removable local browser preference; `remove_storefront_facet` removes one.
 
 Genre, tag, category, developer, publisher, and language reports use the analytics `explode` operation before grouping. Weighted tag reports can also use `tagWeight`.
 
@@ -46,7 +51,7 @@ Genre, tag, category, developer, publisher, and language reports use the analyti
 
 The ignored source archive is `data/steam-catalog/raw/games.json`. The runtime source of truth is D1; neither the 932 MB source file nor the full game catalog is downloaded by the browser.
 
-The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`. Generated import files live under the ignored `work/steam-catalog/` directory. Customer engagement sessions reference the existing Steam games as products and are available only to the Dashboard Demo. See [docs/database.md](docs/database.md) for refresh, local loading, and query-boundary details. See [docs/page-composition.md](docs/page-composition.md) for the audience-confirmation and company-personalization contract.
+The schema lives at `db/schema.ts`; deployable migrations live under `drizzle/`. Generated import files live under the ignored `work/steam-catalog/` directory. Customer engagement sessions reference the existing Steam games as products and are available only to the Dashboard Demo. See [docs/database.md](docs/database.md) for refresh, local loading, and query-boundary details. See [docs/page-composition.md](docs/page-composition.md) for the audience-confirmation and company-personalization contract. See [docs/storefront.md](docs/storefront.md) for storefront behavior, the agent operating contract, and why personalized discovery is a safe local demo action rather than a transaction.
 
 ## Repository notes
 

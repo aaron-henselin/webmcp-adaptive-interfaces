@@ -2,7 +2,13 @@ type WebMCPTool = {
   name: string;
   description: string;
   inputSchema?: Record<string, unknown>;
-  annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean };
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+    untrustedContentHint?: boolean;
+  };
   execute: (input: Record<string, unknown>) => unknown | Promise<unknown>;
 };
 

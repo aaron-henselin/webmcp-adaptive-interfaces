@@ -21,9 +21,22 @@ type HighlightField = typeof HIGHLIGHT_FIELDS[number];
 type FacetBand = { id: string; label: string; min?: number; max?: number };
 type CustomFacet = { id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
 type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean };
+type PrivateTasteProfile = { genres: string[]; tags: string[] };
+type PendingRecommendation = {
+  id: string;
+  search: string;
+  priceBand: (typeof PRICE_BANDS)[number];
+  genre: string;
+  tag: string;
+  minPositiveRatio?: number;
+  minReviewCount?: number;
+  sort: SortKey;
+  direction: "asc" | "desc";
+  presentation: SearchPresentation;
+};
 type StorefrontPageProps = { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void };
 
-const SEARCH_SCHEMA = {
+const RECOMMEND_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -37,7 +50,8 @@ const SEARCH_SCHEMA = {
     minReviewCount: { type: "integer", minimum: 0, maximum: 10000000 },
     sort: { type: "string", enum: SORTS },
     direction: { type: "string", enum: ["asc", "desc"] },
-    excludeOwned: { type: "boolean", default: true, description: "Exclude games already stored in this browser's local library. Keep true unless the user explicitly asks to browse owned games." },
+    personalization: { type: "string", enum: ["none", "local_library"], default: "none", description: "Use none by default. Use local_library only after get_taste_profile succeeds following the user's explicit opt-in." },
+    excludeOwnedLocally: { type: "boolean", default: true, description: "Filter owned app IDs entirely inside the page. No owned IDs or titles are returned." },
     presentation: {
       type: "object", additionalProperties: false,
       properties: {
@@ -66,7 +80,34 @@ const SEARCH_SCHEMA = {
       required: ["factors"],
     },
   },
-  required: ["query", "title", "explanation", "presentation"],
+  required: ["query"],
+};
+
+const APPLY_RECOMMENDATION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    recommendationId: { type: "string", minLength: 1, maxLength: 80, description: "The opaque ID returned by recommend_storefront." },
+  },
+  required: ["recommendationId"],
+};
+
+const EXCLUDE_OWNED_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    appIds: { type: "array", maxItems: 100, items: { type: "integer", minimum: 1 }, description: "Public candidate app IDs to compare with the page's local library." },
+  },
+  required: ["appIds"],
+};
+
+const TASTE_PROFILE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    userConfirmed: { type: "boolean", description: "Must be true only after the user explicitly agrees to use the locally saved library for personalization." },
+  },
+  required: ["userConfirmed"],
 };
 
 const FACET_SCHEMA = {
@@ -235,6 +276,35 @@ function mostCommon(values: string[], limit = 5) {
     .map(([label, count]) => ({ label, count }));
 }
 
+function privateTasteProfile(games: CatalogGame[]): PrivateTasteProfile {
+  return {
+    genres: mostCommon(games.flatMap((game) => game.genres)).map((item) => item.label),
+    tags: mostCommon(games.flatMap((game) => game.tags), 8).map((item) => item.label),
+  };
+}
+
+function publicGame(game: CatalogGame) {
+  return {
+    id: game.id,
+    title: game.title,
+    headerImage: game.headerImage,
+    developer: game.developer,
+    publisher: game.publisher,
+    genres: game.genres,
+    tags: game.tags,
+    priceCents: game.priceCents,
+    discountPercent: game.discountPercent,
+    positiveRatio: game.positiveRatio,
+    reviewCount: game.reviewCount,
+    ownersMax: game.ownersMax,
+    ccu: game.ccu,
+    averageForever: game.averageForever,
+    releaseDate: game.releaseDate,
+    releaseYear: game.releaseYear,
+    rankScore: game.rankScore ?? null,
+  };
+}
+
 export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: StorefrontPageProps) {
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -255,8 +325,15 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   const [addingId, setAddingId] = useState<number | null>(null);
   const customFacetsRef = useRef<CustomFacet[]>([]);
   const libraryRef = useRef<Set<number>>(new Set());
+  const catalogRef = useRef<CatalogPage | null>(null);
+  const privateTasteProfileRef = useRef<PrivateTasteProfile | null>(null);
+  const pendingRecommendationRef = useRef<PendingRecommendation | null>(null);
+  const statusChangeRef = useRef(onWebMcpStatusChange);
   const storageLoadedRef = useRef(false);
   const timersRef = useRef<number[]>([]);
+
+  useEffect(() => { catalogRef.current = catalog; }, [catalog]);
+  useEffect(() => { statusChangeRef.current = onWebMcpStatusChange; }, [onWebMcpStatusChange]);
 
   const numericFilters = useMemo<StorefrontNumericFilter[]>(() => customFacets.flatMap((facet) => {
     const selected = facet.bands.find((band) => band.id === selectedCustomBands[facet.id]);
@@ -267,33 +344,38 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   const requestKey = JSON.stringify([search, priceBand, genre, tag, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
 
   useEffect(() => {
-    try {
-      const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? "[]") as unknown;
-      if (Array.isArray(facets)) {
-        const valid = facets.filter((item): item is CustomFacet => isRecord(item) && typeof item.id === "string" && typeof item.label === "string" && NUMERIC_FIELDS.includes(item.field as StorefrontNumericField) && Array.isArray(item.bands)).slice(0, 8);
-        customFacetsRef.current = valid; setCustomFacets(valid);
-      }
-      const owned = JSON.parse(window.localStorage.getItem(LIBRARY_KEY) ?? "[]") as unknown;
-      if (Array.isArray(owned)) {
-        const nextLibrary = new Set(owned.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 2000));
-        libraryRef.current = nextLibrary;
-        setLibrary(nextLibrary);
-      }
-      const session = JSON.parse(window.sessionStorage.getItem(SEARCH_SESSION_KEY) ?? "null") as unknown;
-      if (isRecord(session) && isRecord(session.presentation)) {
-        const stored = session.presentation as unknown as SearchPresentation;
-        if (LAYOUTS.includes(stored.mode) && Array.isArray(stored.highlights) && Array.isArray(stored.ranking)) {
-          setPresentation({ ...stored, excludeOwned: stored.excludeOwned !== false }); setSearch(cleanText(session.search, "", 120));
-          if (PRICE_BANDS.includes(session.priceBand as (typeof PRICE_BANDS)[number])) setPriceBand(session.priceBand as (typeof PRICE_BANDS)[number]);
-          setGenre(cleanText(session.genre, "", 80)); setTag(cleanText(session.tag, "", 80));
-          if (typeof session.minPositiveRatio === "number") setMinPositiveRatio(session.minPositiveRatio);
-          if (typeof session.minReviewCount === "number") setMinReviewCount(session.minReviewCount);
-          if (SORTS.includes(session.sort as SortKey)) setSort(session.sort as SortKey);
-          if (session.direction === "asc" || session.direction === "desc") setDirection(session.direction);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? "[]") as unknown;
+        if (Array.isArray(facets)) {
+          const valid = facets.filter((item): item is CustomFacet => isRecord(item) && typeof item.id === "string" && typeof item.label === "string" && NUMERIC_FIELDS.includes(item.field as StorefrontNumericField) && Array.isArray(item.bands)).slice(0, 8);
+          customFacetsRef.current = valid; setCustomFacets(valid);
         }
-      }
-    } catch { /* Malformed storage falls back to defaults. */ }
-    storageLoadedRef.current = true;
+        const owned = JSON.parse(window.localStorage.getItem(LIBRARY_KEY) ?? "[]") as unknown;
+        if (Array.isArray(owned)) {
+          const nextLibrary = new Set(owned.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 2000));
+          libraryRef.current = nextLibrary;
+          setLibrary(nextLibrary);
+        }
+        const session = JSON.parse(window.sessionStorage.getItem(SEARCH_SESSION_KEY) ?? "null") as unknown;
+        if (isRecord(session) && isRecord(session.presentation)) {
+          const stored = session.presentation as unknown as SearchPresentation;
+          if (LAYOUTS.includes(stored.mode) && Array.isArray(stored.highlights) && Array.isArray(stored.ranking)) {
+            setPresentation({ ...stored, excludeOwned: stored.excludeOwned !== false }); setSearch(cleanText(session.search, "", 120));
+            if (PRICE_BANDS.includes(session.priceBand as (typeof PRICE_BANDS)[number])) setPriceBand(session.priceBand as (typeof PRICE_BANDS)[number]);
+            setGenre(cleanText(session.genre, "", 80)); setTag(cleanText(session.tag, "", 80));
+            if (typeof session.minPositiveRatio === "number") setMinPositiveRatio(session.minPositiveRatio);
+            if (typeof session.minReviewCount === "number") setMinReviewCount(session.minReviewCount);
+            if (SORTS.includes(session.sort as SortKey)) setSort(session.sort as SortKey);
+            if (session.direction === "asc" || session.direction === "desc") setDirection(session.direction);
+          }
+        }
+      } catch { /* Malformed storage falls back to defaults. */ }
+      storageLoadedRef.current = true;
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -335,98 +417,120 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
     setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setSelectedCustomBands({});
     try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
   }, []);
+  const clearSearchRef = useRef(clearSearch);
+  useEffect(() => { clearSearchRef.current = clearSearch; }, [clearSearch]);
 
-  const catalogRecordCount = catalog?.meta.recordCount;
-  const catalogSourceSha256 = catalog?.meta.sourceSha256;
   useEffect(() => {
-    if (catalogRecordCount === undefined) return;
     const context = document.modelContext ?? navigator.modelContext;
-    if (!context) { queueMicrotask(() => onWebMcpStatusChange("preview")); return; }
+    if (!context) { queueMicrotask(() => statusChangeRef.current("preview")); return; }
     const controller = new AbortController();
     const tools = [
       {
         name: "describe_storefront",
-        description: "Describe the Steam storefront fields, filters, ranking formula fields, adaptive templates, saved custom facets, and local library behavior.",
+        description: "Describe the local-only Steam storefront demo, including its public catalog fields, filters, ranking formulas, adaptive templates, local personalization controls, and safety boundary. This read-only inspection returns no owned titles, playtime, or taste data.",
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
-        annotations: { readOnlyHint: true, untrustedContentHint: false },
-        execute: () => ({
-          content: [{ type: "text", text: "Described a " + catalogRecordCount.toLocaleString() + "-game storefront with agent-controlled result layouts." }],
-          structuredContent: {
-            schemaVersion: "steam-desk.storefront/v1",
-            catalog: { recordCount: catalogRecordCount, genres: catalog?.facets.genres.slice(0, 30).map((item) => item.label) ?? [], tags: catalog?.facets.tags.slice(0, 40).map((item) => item.label) ?? [] },
-            presentationModes: LAYOUTS, rankingFields: NUMERIC_FIELDS.map((field) => ({ field, meaning: fieldLabel(field) })), customFacets: customFacetsRef.current,
-            library: { count: libraryRef.current.size, storage: "local" },
-            guidance: [
-              "Call get_storefront_library before recommendations, discovery, comparisons, or rankings to learn the user's tastes and know which app IDs are already owned.",
-              "Adaptive searches exclude locally owned games by default unless the user explicitly asks to browse owned games.",
-              "Use search_storefront for natural-language shopping and ranking requests.",
-              "Choose ranking only when the request compares or prioritizes results; otherwise use grid, list, or table.",
-              "Ranking factors are normalized and weighted. Use direction lower for price when affordability should improve the score.",
-              "Use save_storefront_facet for reusable facets and provide non-overlapping numeric bands.",
-              "Do not offer cart or checkout. The page only adds games to its local demo library.",
-            ],
-          },
-        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: () => {
+          const current = catalogRef.current;
+          return {
+            content: [{ type: "text", text: "Described the storefront's public discovery and local personalization capabilities without reading personal library data." }],
+            structuredContent: {
+              schemaVersion: "steam-desk.storefront/v2",
+              catalog: { recordCount: current?.meta.recordCount ?? null, genres: current?.facets.genres.slice(0, 30).map((item) => item.label) ?? [], tags: current?.facets.tags.slice(0, 40).map((item) => item.label) ?? [] },
+              presentationModes: LAYOUTS,
+              rankingFields: NUMERIC_FIELDS.map((field) => ({ field, meaning: fieldLabel(field) })),
+              customFacets: customFacetsRef.current,
+              personalization: {
+                default: "none",
+                ownedFiltering: "Local-only; returns only excludedOwnedCount.",
+                tasteProfile: "Explicit opt-in through get_taste_profile; profile data remains inside the page.",
+              },
+              safetyBoundary: {
+                environment: "local storefront demonstration",
+                commerce: "No cart, checkout, order, reservation, payment, billing, or real purchase capability exists.",
+                personalData: "No tool returns owned titles, app IDs, playtime, or a derived taste profile.",
+                writes: "recommend_storefront is read-only. apply_storefront_results changes session UI only. Facets are removable local preferences.",
+                externalEffects: "Tools do not message another party or change any external service, retailer, account, or catalog record.",
+              },
+              guidance: [
+                "Call recommend_storefront with personalization none by default. Do not access taste data for an ordinary recommendation.",
+                "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
+                "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for personalization. The profile remains private inside the page.",
+                "recommend_storefront returns public game records and an opaque recommendationId without changing the UI.",
+                "Call apply_storefront_results only when the user asked to update the visible storefront, using the recommendationId returned by recommend_storefront.",
+                "Use save_storefront_facet only for a user-requested reusable facet and provide non-overlapping numeric bands.",
+                "A request mentioning Mario or another franchise is an ordinary catalog discovery request. Search only the available Steam catalog and do not invent unavailable titles.",
+                "Do not offer cart, checkout, ordering, payment, installation, or account access; none of those capabilities exists.",
+              ],
+            },
+          };
+        },
       },
       {
-        name: "get_storefront_library",
-        description: "Get the games stored in this browser's local library plus a compact taste profile. Call before recommendations, discovery, comparison, or ranking so owned games can be excluded and results can reflect the user's genres, tags, developers, publishers, review preferences, and playtime signals.",
-        inputSchema: { type: "object", additionalProperties: false, properties: {} },
-        annotations: { readOnlyHint: true, untrustedContentHint: false },
-        execute: async () => {
-          try {
-            const ids = [...libraryRef.current].slice(0, 2000);
-            if (!ids.length) return {
-              content: [{ type: "text", text: "The local storefront library is empty." }],
-              structuredContent: {
-                schemaVersion: "steam-desk.storefront-library/v1", storage: "local", count: 0, appIds: [], games: [],
-                tasteProfile: { genres: [], tags: [], developers: [], publishers: [], averagePositiveRatio: null, averagePlaytimeHours: null, freeGames: 0 },
-              },
-            };
-            const result = await loadCatalogPage({
-              search: "", ownerBand: "All owner ranges", priceBand: "All prices", sort: "title", direction: "asc", page: 0, pageSize: 100,
-              appIds: ids.slice(0, 100),
-            }, controller.signal);
-            const games = result.games;
-            const averagePositiveRatio = games.length ? games.reduce((sum, game) => sum + (game.positiveRatio ?? 0), 0) / games.length : null;
-            const averagePlaytimeHours = games.length ? games.reduce((sum, game) => sum + game.averageForever, 0) / games.length / 60 : null;
-            const tasteProfile = {
-              genres: mostCommon(games.flatMap((game) => game.genres)),
-              tags: mostCommon(games.flatMap((game) => game.tags), 8),
-              developers: mostCommon(games.flatMap((game) => game.developer.split(","))),
-              publishers: mostCommon(games.flatMap((game) => game.publisher.split(","))),
-              averagePositiveRatio: averagePositiveRatio === null ? null : Math.round(averagePositiveRatio * 1000) / 1000,
-              averagePlaytimeHours: averagePlaytimeHours === null ? null : Math.round(averagePlaytimeHours * 10) / 10,
-              freeGames: games.filter((game) => game.priceCents === 0).length,
-            };
-            const genreSummary = tasteProfile.genres.map((item) => item.label).join(", ") || "no strong genre signal yet";
+        name: "exclude_owned_games",
+        description: "Compare public candidate app IDs with the simulated library entirely inside the page and return only excludedCount. This never returns owned IDs, titles, playtime, or preferences. If the local library is empty, it immediately returns zero without reading catalog records.",
+        inputSchema: EXCLUDE_OWNED_SCHEMA,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: (input: Record<string, unknown>) => {
+          const candidates = Array.isArray(input.appIds) ? input.appIds.filter((id): id is number => Number.isInteger(id) && Number(id) > 0).slice(0, 100) : [];
+          const owned = libraryRef.current;
+          const excludedCount = owned.size ? candidates.reduce((count, id) => count + (owned.has(id) ? 1 : 0), 0) : 0;
+          return {
+            content: [{ type: "text", text: excludedCount ? "Excluded " + excludedCount + " locally owned candidate games." : "No candidate games were excluded." }],
+            structuredContent: { schemaVersion: "steam-desk.owned-exclusion/v1", excludedCount },
+          };
+        },
+      },
+      {
+        name: "get_taste_profile",
+        description: "Privately prepare a taste profile inside the page only after the user explicitly agrees to use the locally saved game library for personalization. This tool never returns owned titles, app IDs, playtime, preferences, or the derived profile. Do not call it for default recommendations.",
+        inputSchema: TASTE_PROFILE_SCHEMA,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          if (input.userConfirmed !== true) return {
+            isError: true,
+            content: [{ type: "text", text: "Explicit user agreement is required before local-library taste profiling." }],
+            structuredContent: { ok: false, code: "PERSONALIZATION_CONFIRMATION_REQUIRED" },
+          };
+          const ids = [...libraryRef.current].slice(0, 100);
+          if (!ids.length) {
+            privateTasteProfileRef.current = null;
             return {
-              content: [{ type: "text", text: "Read " + ids.length + " locally owned games. Strongest genre signals: " + genreSummary + "." }],
-              structuredContent: {
-                schemaVersion: "steam-desk.storefront-library/v1", storage: "local", count: ids.length, appIds: ids,
-                sampledGameCount: games.length,
-                games: games.map((game) => ({
-                  id: game.id, title: game.title, developer: game.developer, publisher: game.publisher, genres: game.genres, tags: game.tags,
-                  positiveRatio: game.positiveRatio, reviewCount: game.reviewCount, ownersMax: game.ownersMax, ccu: game.ccu,
-                  averageForever: game.averageForever, releaseYear: game.releaseYear,
-                })),
-                tasteProfile,
-              },
+              content: [{ type: "text", text: "The local library is empty, so no taste profile was read or created." }],
+              structuredContent: { schemaVersion: "steam-desk.private-taste-profile/v1", ok: true, ready: false, reason: "empty_library" },
+            };
+          }
+          try {
+            const libraryCatalog = await loadCatalogPage({
+              search: "", ownerBand: "All owner ranges", priceBand: "All prices", sort: "title", direction: "asc", page: 0, pageSize: 100, appIds: ids,
+            }, controller.signal);
+            privateTasteProfileRef.current = privateTasteProfile(libraryCatalog.games);
+            return {
+              content: [{ type: "text", text: "Prepared private local-library personalization. No library or profile data was disclosed." }],
+              structuredContent: { schemaVersion: "steam-desk.private-taste-profile/v1", ok: true, ready: true },
             };
           } catch (error) {
-            return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The local library could not be read." }] };
+            privateTasteProfileRef.current = null;
+            return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Private taste personalization could not be prepared." }], structuredContent: { ok: false } };
           }
         },
       },
       {
-        name: "search_storefront",
-        description: "Use for every natural-language request to find, browse, show, compare, recommend, or rank storefront games. Perform the search, exclude locally owned games by default, and choose the result template that fits the user's intent. Grid supports visual discovery, list supports compact comparison, table supports exact inspection, and ranking supports prioritized recommendations.",
-        inputSchema: SEARCH_SCHEMA,
-        annotations: { readOnlyHint: false, untrustedContentHint: false },
-        execute: (input: Record<string, unknown>) => {
+        name: "recommend_storefront",
+        description: "Read the public Steam catalog and return public game recommendations without changing the storefront UI. Personalization defaults to none. Set personalization to local_library only after get_taste_profile succeeds following explicit user opt-in. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, or taste data are disclosed.",
+        inputSchema: RECOMMEND_SCHEMA,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          const personalization = input.personalization === "local_library" ? "local_library" : "none";
+          const profile = personalization === "local_library" ? privateTasteProfileRef.current : null;
+          if (personalization === "local_library" && !profile) return {
+            isError: true,
+            content: [{ type: "text", text: "Local-library personalization is not ready. Ask the user to opt in, then call get_taste_profile first." }],
+            structuredContent: { ok: false, code: "PERSONALIZATION_OPT_IN_REQUIRED" },
+          };
           try {
             const rawPresentation = isRecord(input.presentation) ? input.presentation : {};
-            const mode = LAYOUTS.includes(rawPresentation.mode as LayoutMode) ? rawPresentation.mode as LayoutMode : "grid";
+            const mode = LAYOUTS.includes(rawPresentation.mode as LayoutMode) ? rawPresentation.mode as LayoutMode : "ranking";
             const highlights = Array.isArray(rawPresentation.highlightFields) ? rawPresentation.highlightFields.filter((field): field is HighlightField => HIGHLIGHT_FIELDS.includes(field as HighlightField)).slice(0, 5) : [];
             let nextRanking = normalizeRanking(input.ranking);
             if (mode === "ranking" && !nextRanking.length) nextRanking = [
@@ -435,34 +539,83 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
               { field: "ownersMax", weight: .2, direction: "higher", label: "player reach" },
               { field: "ccu", weight: .1, direction: "higher", label: "active players" },
             ];
-            const nextPresentation: SearchPresentation = {
-              title: cleanText(input.title, "Results shaped around your request", 90),
-              explanation: cleanText(input.explanation, "The browser selected the fields and layout that make this search easiest to evaluate.", 180),
-              mode, highlights, ranking: nextRanking, excludeOwned: input.excludeOwned !== false,
+            const query = cleanText(input.query, "", 120);
+            const genre = cleanText(input.genre, profile?.genres[0] ?? "", 80);
+            const tag = cleanText(input.tag, profile?.tags[0] ?? "", 80);
+            const price = PRICE_BANDS.includes(input.priceBand as (typeof PRICE_BANDS)[number]) ? input.priceBand as (typeof PRICE_BANDS)[number] : "All prices";
+            const minRatio = typeof input.minPositiveRatio === "number" ? Math.min(1, Math.max(0, input.minPositiveRatio)) : undefined;
+            const minReviews = typeof input.minReviewCount === "number" ? Math.max(0, Math.round(input.minReviewCount)) : undefined;
+            const sortKey = SORTS.includes(input.sort as SortKey) ? input.sort as SortKey : nextRanking.length ? "positiveRatio" : "ownersMax";
+            const sortDirection = input.direction === "asc" ? "asc" : "desc";
+            const excludeOwned = input.excludeOwnedLocally !== false;
+            const ownedIds = excludeOwned && libraryRef.current.size ? [...libraryRef.current].slice(0, 200) : [];
+            const options = {
+              search: query, ownerBand: "All owner ranges", priceBand: price, sort: sortKey, direction: sortDirection, page: 0, pageSize: PAGE_SIZE,
+              genre, tag, minPositiveRatio: minRatio, minReviewCount: minReviews, ranking: nextRanking,
             };
-            setSearch(cleanText(input.query, "", 120)); setGenre(cleanText(input.genre, "", 80)); setTag(cleanText(input.tag, "", 80));
-            setPriceBand(PRICE_BANDS.includes(input.priceBand as (typeof PRICE_BANDS)[number]) ? input.priceBand as (typeof PRICE_BANDS)[number] : "All prices");
-            setMinPositiveRatio(typeof input.minPositiveRatio === "number" ? Math.min(1, Math.max(0, input.minPositiveRatio)) : undefined);
-            setMinReviewCount(typeof input.minReviewCount === "number" ? Math.max(0, Math.round(input.minReviewCount)) : undefined);
-            setSort(SORTS.includes(input.sort as SortKey) ? input.sort as SortKey : nextRanking.length ? "positiveRatio" : "ownersMax");
-            setDirection(input.direction === "asc" ? "asc" : "desc"); setPresentation(nextPresentation); setPage(0);
-            return { content: [{ type: "text", text: "Applied “" + nextPresentation.title + "” in the " + mode + " storefront layout." }], structuredContent: { schemaVersion: "steam-desk.storefront-search-receipt/v1", ok: true, query: cleanText(input.query, "", 120), presentation: nextPresentation, excludedOwnedCount: nextPresentation.excludeOwned ? libraryRef.current.size : 0, persistence: "session until search is cleared" } };
+            const recommendationRequest = loadCatalogPage({ ...options, excludeAppIds: ownedIds }, controller.signal);
+            const inclusiveCountRequest = ownedIds.length ? loadCatalogPage({ ...options, pageSize: 1 }, controller.signal) : null;
+            const [result, inclusive] = await Promise.all([recommendationRequest, inclusiveCountRequest]);
+            const excludedOwnedCount = inclusive ? Math.max(0, inclusive.query.total - result.query.total) : 0;
+            const nextPresentation: SearchPresentation = {
+              title: cleanText(input.title, "Recommendations shaped around your request", 90),
+              explanation: cleanText(input.explanation, personalization === "local_library" ? "Public catalog results were ranked with a private profile computed inside this page." : "Public catalog results were ranked without reading personal taste data.", 180),
+              mode, highlights, ranking: nextRanking, excludeOwned,
+            };
+            const recommendationId = "store-rec-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+            pendingRecommendationRef.current = {
+              id: recommendationId, search: query, priceBand: price, genre, tag, minPositiveRatio: minRatio, minReviewCount: minReviews,
+              sort: sortKey, direction: sortDirection, presentation: nextPresentation,
+            };
+            return {
+              content: [{ type: "text", text: "Found " + result.games.length + " public game recommendations without changing the storefront." }],
+              structuredContent: {
+                schemaVersion: "steam-desk.storefront-recommendations/v1",
+                ok: true,
+                recommendationId,
+                personalization,
+                results: result.games.map(publicGame),
+                excludedOwnedCount,
+              },
+            };
           } catch (error) {
-            return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The storefront search could not be applied." }], structuredContent: { ok: false } };
+            return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Storefront recommendations could not be created." }], structuredContent: { ok: false } };
           }
         },
       },
       {
+        name: "apply_storefront_results",
+        description: "Optionally apply one result set from recommend_storefront to the visible storefront session. This changes only local search, filters, ranking, and layout; it cannot purchase, install, access an account, or write to an external service.",
+        inputSchema: APPLY_RECOMMENDATION_SCHEMA,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: (input: Record<string, unknown>) => {
+          const recommendationId = cleanText(input.recommendationId, "", 80);
+          const pending = pendingRecommendationRef.current;
+          if (!pending || pending.id !== recommendationId) return {
+            isError: true,
+            content: [{ type: "text", text: "That recommendation is unavailable or stale. Call recommend_storefront again." }],
+            structuredContent: { ok: false, code: "RECOMMENDATION_NOT_FOUND" },
+          };
+          setSearch(pending.search); setPriceBand(pending.priceBand); setGenre(pending.genre); setTag(pending.tag);
+          setMinPositiveRatio(pending.minPositiveRatio); setMinReviewCount(pending.minReviewCount);
+          setSort(pending.sort); setDirection(pending.direction); setPresentation(pending.presentation); setPage(0);
+          return {
+            content: [{ type: "text", text: "Applied “" + pending.presentation.title + "” to the visible " + pending.presentation.mode + " storefront layout." }],
+            structuredContent: { schemaVersion: "steam-desk.storefront-apply-receipt/v1", ok: true, recommendationId, persistence: "session until search is cleared" },
+          };
+        },
+      },
+      {
         name: "save_storefront_facet",
-        description: "Create a reusable numeric storefront facet with non-overlapping formula bands. The facet is saved permanently in this browser.",
+        description: "Create a user-requested reusable numeric facet with non-overlapping formula bands. This changes only the local demo UI and saves a removable preference in this browser's local storage; it does not change an account, retailer, catalog, order, or external service.",
         inputSchema: FACET_SCHEMA,
-        annotations: { readOnlyHint: false, untrustedContentHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
           try {
             const facet = normalizeCustomFacet(input);
             const next = [facet, ...customFacetsRef.current].slice(0, 8);
             customFacetsRef.current = next; setCustomFacets(next);
-            return { content: [{ type: "text", text: "Added the permanent “" + facet.label + "” facet with " + facet.bands.length + " formula bands." }], structuredContent: { schemaVersion: "steam-desk.storefront-facet-receipt/v1", ok: true, saved: true, storage: "local", facet } };
+            return { content: [{ type: "text", text: "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands." }], structuredContent: { schemaVersion: "steam-desk.storefront-facet-receipt/v1", ok: true, saved: true, storage: "local", facet } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The custom facet could not be saved." }], structuredContent: { ok: false } };
           }
@@ -470,9 +623,9 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
       },
       {
         name: "remove_storefront_facet",
-        description: "Remove a saved custom storefront facet from this browser.",
+        description: "Remove one saved custom facet from this browser's local demo preferences. This does not affect an account, retailer, catalog, order, or external service; the facet can be recreated with save_storefront_facet.",
         inputSchema: { type: "object", additionalProperties: false, properties: { facetId: { type: "string", minLength: 1, maxLength: 80 } }, required: ["facetId"] },
-        annotations: { readOnlyHint: false, untrustedContentHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
           const facetId = cleanText(input.facetId, "", 80);
           const existing = customFacetsRef.current.find((facet) => facet.id === facetId);
@@ -485,20 +638,20 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
       },
       {
         name: "clear_storefront_search",
-        description: "Clear the current search, filters, ranking formula, and adaptive template while preserving custom facets and library.",
+        description: "Reset the current browser session's demo search, filters, ranking formula, and adaptive template while preserving custom facets and the simulated local library. This is a safe local UI reset with no external effect.",
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
-        annotations: { readOnlyHint: false, untrustedContentHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: () => {
-          clearSearch();
+          clearSearchRef.current();
           return { content: [{ type: "text", text: "Cleared the adaptive search and restored the conventional storefront." }], structuredContent: { ok: true, layout: "grid", customFacetsPreserved: true, libraryPreserved: true } };
         },
       },
     ];
     void Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal })))
-      .then(() => { if (!controller.signal.aborted) onWebMcpStatusChange("connected"); })
-      .catch(() => { if (!controller.signal.aborted) onWebMcpStatusChange("preview"); });
+      .then(() => { if (!controller.signal.aborted) statusChangeRef.current("connected"); })
+      .catch(() => { if (!controller.signal.aborted) statusChangeRef.current("preview"); });
     return () => controller.abort();
-  }, [catalogRecordCount, catalogSourceSha256, clearSearch, onWebMcpStatusChange]);
+  }, []);
 
   const addToLibrary = useCallback((id: number) => {
     if (library.has(id) || addingId !== null) return;

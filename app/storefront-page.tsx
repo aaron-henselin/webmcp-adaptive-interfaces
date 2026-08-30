@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import DemoSwitcher, { type WebMcpStatus, webMcpStatusLabel } from "./demo-switcher";
+import DemoSwitcher, { type WebMcpStatus } from "./demo-switcher";
 import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField } from "./catalog-data";
 import "./storefront.css";
 
@@ -422,7 +422,7 @@ function publicGame(game: CatalogGame) {
   };
 }
 
-export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: StorefrontPageProps) {
+export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageProps) {
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
   const [resolvedKey, setResolvedKey] = useState("");
@@ -958,17 +958,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   }, [appliedRecommendation?.id, editorial?.summary, featuredGames, renderRequestVersion, visibleAppIds]);
 
   return <><DemoSwitcher active="store" /><main className="storefront-shell">
-    <section className="storefront" aria-labelledby="storefront-title">
-      <header className="storefront-hero">
-        <div className="storefront-hero-copy">
-          <p className={"storefront-status webmcp-status-" + webMcpStatus}><span aria-hidden="true" /> {webMcpStatusLabel(webMcpStatus)}</p>
-          <h1 id="storefront-title">Find your next game.</h1>
-          <p>Browse the store normally—or tell your browser what matters and let the results reshape around the question.</p>
-          <div className="storefront-prompt"><span>Try saying</span><b>“Rank real-time strategy games for someone who values active players and reviews.”</b></div>
-        </div>
-        <div className="storefront-hero-mark" aria-hidden="true"><span>03</span><strong>STORE</strong><i /></div>
-      </header>
-
+    <section className="storefront" aria-label="Steam storefront">
       {!presentation ? <form className="storefront-search" role="search" onSubmit={(event) => event.preventDefault()}>
         <label><span aria-hidden="true">⌕</span><span className="sr-only">Search the store</span><input value={search} onChange={(event) => updateTextSearch(event.target.value)} placeholder="Search games, studios, genres, or tags" /></label>
         <select aria-label="Sort games" value={sort} onChange={(event) => { setSort(event.target.value as SortKey); setDirection(event.target.value === "title" ? "asc" : "desc"); setPage(0); }}>

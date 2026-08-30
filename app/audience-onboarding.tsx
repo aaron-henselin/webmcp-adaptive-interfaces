@@ -59,6 +59,15 @@ export default function AudienceOnboarding({ stage, audience, connectionStatus, 
     </div>;
   }
 
+  if (proposalRequired) {
+    return <div className="audience-onboarding audience-invitation">
+      <section className="audience-invitation-copy" role="status" aria-live="polite" aria-labelledby="audience-brief-title">
+        <h3 id="audience-brief-title">You&rsquo;re almost there, {audience.firstName}.</h3>
+        <p>We&rsquo;re just waiting for your browser to submit the final plan.</p>
+      </section>
+    </div>;
+  }
+
   return (
     <div className="audience-onboarding">
       <section className="audience-brief" aria-labelledby="audience-brief-title">

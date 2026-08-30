@@ -81,6 +81,7 @@ export async function GET(request: Request) {
     const pageSql = `SELECT
       g.app_id AS id,
       g.name AS title,
+      g.header_image AS headerImage,
       COALESCE((SELECT group_concat(name, ', ') FROM (SELECT d.name FROM game_developers gd JOIN developers d ON d.id = gd.developer_id WHERE gd.app_id = g.app_id ORDER BY d.name)), 'Unknown developer') AS developer,
       COALESCE((SELECT group_concat(name, ', ') FROM (SELECT p.name FROM game_publishers gp JOIN publishers p ON p.id = gp.publisher_id WHERE gp.app_id = g.app_id ORDER BY p.name)), 'Unknown publisher') AS publisher,
       g.owners,

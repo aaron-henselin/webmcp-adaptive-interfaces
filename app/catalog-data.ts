@@ -1,6 +1,7 @@
 export type CatalogGame = {
   id: number;
   title: string;
+  headerImage: string | null;
   developer: string;
   publisher: string;
   owners: string;

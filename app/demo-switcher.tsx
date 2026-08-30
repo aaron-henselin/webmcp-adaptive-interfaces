@@ -21,7 +21,7 @@ const demos = [
     href: "/builder",
     number: "02",
     title: "Dashboard Demo",
-    description: "Many components, composed around you",
+    description: "Create an entire personal dashboard, tailored to your role",
   },
 ];
 
@@ -30,7 +30,7 @@ export default function DemoSwitcher({ active, children }: DemoSwitcherProps) {
     <div className={`demo-switcher-inner${children ? " has-detail" : ""}`}>
       <div className="demo-switcher-brand">
         <span>A Personal Internet</span>
-        <small>See how AI rewrites what it means to be yours.</small>
+        <small>See how AI rewrites what it means to be <em>yours</em>.</small>
       </div>
       <div className="demo-switcher-options">
         {demos.map((demo) => <a

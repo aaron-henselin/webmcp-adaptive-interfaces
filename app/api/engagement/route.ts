@@ -104,7 +104,7 @@ export async function GET(request: Request) {
       ...reports.map((report) => database.prepare(report.sql).bind(...report.values)),
       database.prepare("SELECT name AS label FROM engagement_shops ORDER BY name"),
       database.prepare("SELECT p.name AS label FROM game_publishers gp JOIN publishers p ON p.id = gp.publisher_id GROUP BY p.id ORDER BY COUNT(*) DESC, p.name LIMIT 40"),
-      database.prepare("SELECT ge.name AS label FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id GROUP BY ge.id ORDER BY COUNT(*) DESC, ge.name LIMIT 40"),
+      database.prepare("SELECT ge.name AS label FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE lower(trim(ge.name)) <> 'sexual content' GROUP BY ge.id ORDER BY COUNT(*) DESC, ge.name LIMIT 40"),
       database.prepare("SELECT d.name AS label FROM game_developers gd JOIN developers d ON d.id = gd.developer_id GROUP BY d.id ORDER BY COUNT(*) DESC, d.name LIMIT 40"),
       database.prepare("SELECT c.name AS label FROM game_categories gc JOIN categories c ON c.id = gc.category_id GROUP BY c.id ORDER BY COUNT(*) DESC, c.name LIMIT 40"),
     ];

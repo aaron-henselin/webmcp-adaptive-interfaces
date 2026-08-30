@@ -191,7 +191,7 @@ function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpres
     values.push(priceBand);
   }
   if (genre) {
-    clauses.push("EXISTS (SELECT 1 FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id AND ge.name = ?)");
+    clauses.push("EXISTS (SELECT 1 FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id AND ge.name = ? AND lower(trim(ge.name)) <> 'sexual content')");
     values.push(genre);
   }
   if (tag) {
@@ -275,7 +275,7 @@ export async function GET(request: Request) {
       ${ranking?.sql ?? "NULL"} AS rankScore,
       ${intent.intentFit.sql} AS intentFit,
       ${intent.tagCoverage.sql} AS tagCoverage,
-      COALESCE((SELECT json_group_array(name) FROM (SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id ORDER BY ge.name)), '[]') AS genres,
+      COALESCE((SELECT json_group_array(name) FROM (SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id AND lower(trim(ge.name)) <> 'sexual content' ORDER BY ge.name)), '[]') AS genres,
       COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id ORDER BY gt.weight DESC, t.name LIMIT 12)), '[]') AS tags
     FROM games g
     ${where.sql}
@@ -289,7 +289,7 @@ export async function GET(request: Request) {
       database.prepare(`SELECT g.owners AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY g.owners ORDER BY MAX(g.owners_max) DESC`).bind(...where.values),
       database.prepare(`SELECT ${REVIEW_BAND_SQL} AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY label ORDER BY MIN(CASE label WHEN '95%+ positive' THEN 1 WHEN '90–94% positive' THEN 2 WHEN '80–89% positive' THEN 3 WHEN '70–79% positive' THEN 4 WHEN 'Below 70%' THEN 5 ELSE 6 END)`).bind(...where.values),
       database.prepare(`SELECT ${PRICE_BAND_SQL} AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY label ORDER BY MIN(g.price_cents)`).bind(...where.values),
-      database.prepare("SELECT ge.name AS label, COUNT(*) AS value FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id GROUP BY ge.id ORDER BY value DESC, ge.name LIMIT 40"),
+      database.prepare("SELECT ge.name AS label, COUNT(*) AS value FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE lower(trim(ge.name)) <> 'sexual content' GROUP BY ge.id ORDER BY value DESC, ge.name LIMIT 40"),
       database.prepare("SELECT t.name AS label, COUNT(*) AS value FROM game_tags gt JOIN tags t ON t.id = gt.tag_id GROUP BY t.id ORDER BY value DESC, t.name LIMIT 60"),
     ];
     const [countResult, gamesResult, importResult, ownersResult, reviewsResult, priceResult, genresResult, tagsResult] = await database.batch(statements);

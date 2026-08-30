@@ -27,7 +27,7 @@ function source(binding: CatalogAnalyticsBinding, values: Array<string | number>
   if (filters.priceBand !== "All prices") { clauses.push(`${PRICE_BAND} = ?`); values.push(filters.priceBand); }
   if (filters.minPositiveRatio > 0) { clauses.push("COALESCE(g.positive_ratio, 0) >= ?"); values.push(filters.minPositiveRatio); }
   if (filters.minCcu > 0) { clauses.push("g.peak_ccu >= ?"); values.push(filters.minCcu); }
-  for (const genre of filters.genres) { clauses.push("g.app_id IN (SELECT fg.app_id FROM game_genres fg JOIN genres fge ON fge.id = fg.genre_id WHERE fge.name = ?)"); values.push(genre); }
+  for (const genre of filters.genres) { clauses.push("g.app_id IN (SELECT fg.app_id FROM game_genres fg JOIN genres fge ON fge.id = fg.genre_id WHERE fge.name = ? AND lower(trim(fge.name)) <> 'sexual content')"); values.push(genre); }
   for (const tag of filters.tags) { clauses.push("g.app_id IN (SELECT ft.app_id FROM game_tags ft JOIN tags fta ON fta.id = ft.tag_id WHERE fta.name = ?)"); values.push(tag); }
   for (const category of filters.categories) { clauses.push("g.app_id IN (SELECT fc.app_id FROM game_categories fc JOIN categories fca ON fca.id = fc.category_id WHERE fca.name = ?)"); values.push(category); }
   return `SELECT
@@ -44,7 +44,7 @@ function source(binding: CatalogAnalyticsBinding, values: Array<string | number>
 }
 
 const EXPLODES: Record<ExplodeField, { join: (sourceName: string) => string; value: string; additions?: string[] }> = {
-  genres: { join: (s) => `JOIN game_genres xj ON xj.app_id = ${s}.id JOIN genres xd ON xd.id = xj.genre_id`, value: "xd.name" },
+  genres: { join: (s) => `JOIN game_genres xj ON xj.app_id = ${s}.id JOIN genres xd ON xd.id = xj.genre_id AND lower(trim(xd.name)) <> 'sexual content'`, value: "xd.name" },
   tags: { join: (s) => `JOIN game_tags xj ON xj.app_id = ${s}.id JOIN tags xd ON xd.id = xj.tag_id`, value: "xd.name", additions: ["xj.weight AS tagWeight"] },
   categories: { join: (s) => `JOIN game_categories xj ON xj.app_id = ${s}.id JOIN categories xd ON xd.id = xj.category_id`, value: "xd.name" },
   developers: { join: (s) => `JOIN game_developers xj ON xj.app_id = ${s}.id JOIN developers xd ON xd.id = xj.developer_id`, value: "xd.name" },

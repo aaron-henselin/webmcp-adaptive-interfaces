@@ -50,7 +50,7 @@ function sessionSource(filters: EngagementSourceFilters, values: Array<string | 
 
   const relationships = [
     relationshipFilter("SELECT p.name FROM game_publishers gp JOIN publishers p ON p.id = gp.publisher_id WHERE gp.app_id = es.app_id AND p.name", filters.suppliers, values),
-    relationshipFilter("SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = es.app_id AND ge.name", filters.productCategories, values),
+    relationshipFilter("SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = es.app_id AND lower(trim(ge.name)) <> 'sexual content' AND ge.name", filters.productCategories, values),
     relationshipFilter("SELECT d.name FROM game_developers gd JOIN developers d ON d.id = gd.developer_id WHERE gd.app_id = es.app_id AND d.name", filters.brands, values),
     relationshipFilter("SELECT c.name FROM game_categories gc JOIN categories c ON c.id = gc.category_id WHERE gc.app_id = es.app_id AND c.name", filters.productClasses, values),
   ].filter(Boolean);
@@ -70,7 +70,7 @@ function sessionSource(filters: EngagementSourceFilters, values: Array<string | 
     sh.region AS shopRegion,
     COALESCE((SELECT p.name FROM game_publishers gp JOIN publishers p ON p.id = gp.publisher_id WHERE gp.app_id = es.app_id ORDER BY p.name LIMIT 1), 'Unknown supplier') AS supplier,
     COALESCE((SELECT d.name FROM game_developers gd JOIN developers d ON d.id = gd.developer_id WHERE gd.app_id = es.app_id ORDER BY d.name LIMIT 1), 'Unknown brand') AS brand,
-    COALESCE((SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = es.app_id ORDER BY ge.name LIMIT 1), 'Uncategorized') AS productCategory,
+    COALESCE((SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = es.app_id AND lower(trim(ge.name)) <> 'sexual content' ORDER BY ge.name LIMIT 1), 'Uncategorized') AS productCategory,
     COALESCE((SELECT c.name FROM game_categories gc JOIN categories c ON c.id = gc.category_id WHERE gc.app_id = es.app_id ORDER BY c.name LIMIT 1), 'Unclassified') AS productClass,
     eu.first_name AS firstName,
     eu.last_name AS lastName,

@@ -5,9 +5,10 @@ import path from "node:path";
 import process from "node:process";
 import parserStream from "stream-json";
 import streamObject from "stream-json/streamers/stream-object.js";
+import { hasSexualContent, SEXUAL_CONTENT_POLICY_VERSION } from "./catalog-content-policy.mjs";
 const DEFAULT_INPUT = path.resolve("data", "steam-catalog", "raw", "games.json");
 const DEFAULT_OUTPUT = path.resolve("work", "steam-catalog", "import.sql");
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function parseOptions(argv) {
   const options = { input: DEFAULT_INPUT, output: DEFAULT_OUTPUT, profile: false, maxRecords: Infinity };
@@ -129,7 +130,12 @@ async function scan(input, maximum, onGame) {
   inputStream.on("data", (chunk) => hash.update(chunk));
   const pipeline = inputStream.pipe(parserStream()).pipe(streamObject.asStream());
   let count = 0;
+  let excludedSexualContent = 0;
   for await (const entry of pipeline) {
+    if (hasSexualContent(entry.value)) {
+      excludedSexualContent += 1;
+      continue;
+    }
     const game = normalizeGame(entry.key, entry.value);
     if (!game.appId) continue;
     await onGame(game);
@@ -139,7 +145,7 @@ async function scan(input, maximum, onGame) {
       break;
     }
   }
-  return { count, sha256: maximum === Infinity ? hash.digest("hex") : "partial" };
+  return { count, excludedSexualContent, sha256: maximum === Infinity ? hash.digest("hex") : "partial" };
 }
 
 function sql(value) {
@@ -279,6 +285,8 @@ const summary = {
   source: options.input,
   sourceBytes: source.size,
   sourceSha256: profile.sha256,
+  contentPolicyVersion: SEXUAL_CONTENT_POLICY_VERSION,
+  excludedSexualContent: profile.excludedSexualContent,
   ...profile.stats,
   dimensions: Object.fromEntries(Object.entries(profile.dimensions).map(([name, values]) => [name, values.size])),
 };

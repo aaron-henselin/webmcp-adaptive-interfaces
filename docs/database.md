@@ -8,6 +8,8 @@ The ignored source archive lives at `data/steam-catalog/raw/games.json`. `db/sch
 
 The database contains a scalar `games` table plus normalized dimensions and junctions for developers, publishers, genres, categories, weighted tags, and languages. `game_search` is an FTS5 index over title and related text dimensions. `companies` unifies exact developer and publisher names with their catalog roles and game counts; `company_search` handles exact and prefix lookup, while indexed `company_search_grams` supplies a bounded candidate set for typo-tolerant audience onboarding.
 
+Catalog imports apply the shared sexual-content policy before normalization. A title is excluded when Steam supplies an explicit Sexual Content, Nudity, Hentai, or NSFW tag, or when its mature-content note contains a direct sexual, nudity, erotic, pornographic, hentai, or NSFW indicator. catalog_content_exclusions records the source app IDs and matched signals for auditability. The same policy is applied when building the static SteamSpy snapshot used by the reports demo.
+
 The Dashboard Demo also uses `engagement_shops`, `engagement_users`, and `engagement_sessions`. Each session references `games.app_id`, so Steam games remain the product dimension. Publisher, developer, genre, and category provide the dashboard's supplier, brand, product-category, and product-class semantics. These additional tables are not exposed by the Data Table Demo.
 
 ## Refresh workflow

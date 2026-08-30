@@ -2,12 +2,14 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { collectSexualContentExclusions, SEXUAL_CONTENT_POLICY_VERSION } from "./catalog-content-policy.mjs";
 
 const SNAPSHOT = process.env.STEAMSPY_SNAPSHOT ?? "2026-08-27";
-const PAGE_COUNT = Number.parseInt(process.env.STEAMSPY_PAGES ?? "21", 10);
+const PAGE_COUNT = Number.parseInt(process.env.STEAMSPY_PAGES ?? "23", 10);
 const TARGET_RECORD_COUNT = 20_000;
 const INPUT_DIR = path.resolve("data", "steamspy", "raw", SNAPSHOT, "all");
 const OUTPUT_FILE = path.resolve("public", "data", "steamspy-snapshot.json");
+const CATALOG_INPUT = path.resolve(process.env.STEAM_CATALOG_INPUT ?? "data/steam-catalog/raw/games.json");
 
 if (!Number.isInteger(PAGE_COUNT) || PAGE_COUNT < 1) {
   throw new Error("STEAMSPY_PAGES must be a positive integer.");
@@ -27,6 +29,8 @@ const parseOwners = (owners) => {
 
 const records = [];
 const sourceFiles = [];
+const sexualContentExclusions = await collectSexualContentExclusions(CATALOG_INPUT);
+let excludedSexualContent = 0;
 
 for (let page = 0; page < PAGE_COUNT; page += 1) {
   const filename = `page-${String(page).padStart(5, "0")}.json`;
@@ -47,13 +51,18 @@ for (let page = 0; page < PAGE_COUNT; page += 1) {
   });
 
   for (const game of games) {
+    const appId = parseNumber(game.appid);
+    if (sexualContentExclusions.has(appId)) {
+      excludedSexualContent += 1;
+      continue;
+    }
     const [ownersMin, ownersMax] = parseOwners(game.owners);
     const positive = parseNumber(game.positive);
     const negative = parseNumber(game.negative);
     const reviewCount = positive + negative;
 
     records.push({
-      id: parseNumber(game.appid),
+      id: appId,
       title: String(game.name ?? "Unknown game"),
       developer: String(game.developer ?? "Unknown developer") || "Unknown developer",
       publisher: String(game.publisher ?? "Unknown publisher") || "Unknown publisher",
@@ -92,6 +101,10 @@ const snapshot = {
   pageCount: PAGE_COUNT,
   recordCount: snapshotRecords.length,
   sourceFiles,
+  contentPolicy: {
+    version: SEXUAL_CONTENT_POLICY_VERSION,
+    excludedSexualContent,
+  },
   games: snapshotRecords,
 };
 

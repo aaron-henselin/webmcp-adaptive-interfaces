@@ -12,6 +12,8 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "steamspy:download": "node scripts/download-steamspy.mjs",
     "steamspy:build-static": "node scripts/build-steamspy-static.mjs",
+    "catalog:build-content-exclusions": "node scripts/build-content-exclusions.mjs",
+    "catalog:test-content-policy": "node --test scripts/catalog-content-policy.test.mjs",
     "db:generate": "drizzle-kit generate",
     "catalog:profile": "node scripts/import-steam-catalog.mjs --profile",
     "catalog:build-import": "node scripts/import-steam-catalog.mjs",

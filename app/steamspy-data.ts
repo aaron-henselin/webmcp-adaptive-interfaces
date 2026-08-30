@@ -33,6 +33,10 @@ export type SteamSpySnapshot = {
     records: number;
     sha256: string;
   }>;
+  contentPolicy: {
+    version: number;
+    excludedSexualContent: number;
+  };
   games: SteamSpyGame[];
 };
 

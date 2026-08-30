@@ -9,6 +9,12 @@ export const catalogImports = sqliteTable("catalog_imports", {
   recordCount: integer("record_count").notNull(),
 }, (table) => [uniqueIndex("idx_catalog_imports_sha256").on(table.sourceSha256)]);
 
+export const catalogContentExclusions = sqliteTable("catalog_content_exclusions", {
+  appId: integer("app_id").primaryKey(),
+  reason: text("reason").notNull(),
+  policyVersion: integer("policy_version").notNull(),
+});
+
 export const games = sqliteTable("games", {
   appId: integer("app_id").primaryKey(),
   name: text("name").notNull(),

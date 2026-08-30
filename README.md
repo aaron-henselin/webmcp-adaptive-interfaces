@@ -39,8 +39,8 @@ The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog
 - `request_page_composition` appears after audience submission and records the user-approved page proposal before creation.
 - `create_report` executes a bounded database report and places it inline on the page.
 - `render_report` recreates an inline report as Markdown or a PNG.
-- Storefront Demo: `describe_storefront` documents the public catalog, personalization capabilities, and privacy boundary without reading library data.
-- `recommend_storefront` is retrieval-only, defaults to no taste personalization, supports reference/include/preferred/excluded-tag intent scoring, filters owned games inside the page, and returns only public game records plus an exclusion count.
+- Storefront Demo: `describe_storefront` documents the public catalog, personalization capabilities, and privacy boundary, and exposes only a boolean `personalizationAvailable` signal—never library titles, IDs, playtime, or library-derived preferences.
+- `recommend_storefront` is retrieval-only. For an eligible self-directed request it offers available library personalization once; declined, immediate-answer, unavailable, gift, and group flows use public data with no taste personalization. It supports reference/include/preferred/excluded-tag intent scoring, filters owned games inside the page, and returns only public game records plus an exclusion count.
 - `curate_storefront_results` separately stages a headline, summary, featured badges, per-game reasons, and ordering after validating every app ID against the originating recommendation.
 - `get_taste_profile` prepares private personalization only after explicit user opt-in and only for a game the user is choosing or buying for themselves; gifts, other people, groups, and unclear recipients default to no taste personalization. It never returns the library or profile; `exclude_owned_games` returns only a count.
 - `apply_storefront_results` optionally applies a recommendation to session-scoped search, filters, ranking, editorial presentation, and layout, then reports the featured and visible app IDs after rendering completes.

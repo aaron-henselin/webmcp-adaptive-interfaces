@@ -75,8 +75,8 @@ const RECOMMEND_SCHEMA = {
     minReviewCount: { type: "integer", minimum: 0, maximum: 10000000 },
     sort: { type: "string", enum: SORTS },
     direction: { type: "string", enum: ["asc", "desc"] },
-    personalization: { type: "string", enum: ["none", "local_library"], default: "none", description: "Use none by default. Use local_library only after get_taste_profile succeeds following the user's explicit opt-in for a game they are choosing or buying for themselves." },
-    recipientContext: { type: "string", enum: ["self", "someone_else", "shared_group", "unspecified"], default: "unspecified", description: "Use self only when the user is choosing or buying the game for themselves. For gifts, another person, a household or group, or an unclear recipient, use the matching non-self value and keep personalization set to none." },
+    personalization: { type: "string", enum: ["none", "local_library"], default: "none", description: "For self-directed requests, offer library personalization once when describe_storefront reports personalizationAvailable true, unless the user declines or requests an immediate answer. Use local_library only after explicit opt-in and a successful get_taste_profile call. Always use none when personalization is unavailable or the recipient is someone_else, shared_group, or unspecified." },
+    recipientContext: { type: "string", enum: ["self", "someone_else", "shared_group", "unspecified"], default: "unspecified", description: "Use self only when the user is choosing or buying the game for themselves. Never offer library personalization for someone_else or shared_group. For gifts, another person, a household or group, or an unclear recipient, use the matching non-self value and keep personalization set to none." },
     excludeOwnedLocally: { type: "boolean", default: true, description: "Filter owned app IDs entirely inside the page. No owned IDs or titles are returned." },
     presentation: {
       type: "object", additionalProperties: false,
@@ -589,19 +589,21 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
     const tools = [
       {
         name: "describe_storefront",
-        description: "Describe the local-only Steam storefront demo, including its public catalog fields, filters, ranking formulas, adaptive templates, local personalization controls, and safety boundary. This read-only inspection returns no owned titles, playtime, or taste data.",
+        description: "Describe the local-only Steam storefront demo, including its public catalog fields, filters, ranking formulas, adaptive templates, local personalization controls, and safety boundary. Returns the non-sensitive personalizationAvailable capability signal without exposing owned titles, app IDs, playtime, library-derived preferences, or taste data.",
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: () => {
-          const current = storefrontRuntime?.catalog.current;
+          const currentRuntime = storefrontRuntime;
+          const current = currentRuntime?.catalog.current;
           return {
-            content: [{ type: "text", text: "Described the storefront's public discovery and local personalization capabilities without reading personal library data." }],
+            content: [{ type: "text", text: "Described the storefront's public discovery and local personalization capabilities without disclosing personal library data." }],
             structuredContent: {
               schemaVersion: "steam-desk.storefront/v2",
+              personalizationAvailable: Boolean(currentRuntime?.library.current.size),
               catalog: { recordCount: current?.meta.recordCount ?? null, genres: current?.facets.genres.slice(0, 30).map((item) => item.label) ?? [], tags: current?.facets.tags.slice(0, 40).map((item) => item.label) ?? [] },
               presentationModes: LAYOUTS,
               rankingFields: RANKING_FIELDS.map((field) => ({ field, meaning: fieldLabel(field) })),
-              customFacets: storefrontRuntime?.customFacets.current ?? [],
+              customFacets: currentRuntime?.customFacets.current ?? [],
               personalization: {
                 default: "none",
                 ownedFiltering: "Local-only; returns only excludedOwnedCount.",
@@ -615,7 +617,10 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
                 externalEffects: "Tools do not message another party or change any external service, retailer, account, or catalog record.",
               },
               guidance: [
-                "Call recommend_storefront with personalization none by default. Do not access taste data for an ordinary recommendation.",
+                "For a self-directed request, when personalizationAvailable is true, ask once whether the user wants library-based personalization before recommending.",
+                "If the user declines, requests an immediate answer, or personalizationAvailable is false, continue immediately with personalization none.",
+                "Never offer library personalization for recipientContext someone_else or shared_group. Keep personalization none for those requests and for an unclear recipient.",
+                "Examples: “Find me a game” → offer personalization once; “Find my nephew a game” → do not offer and use public data; “Use my library” → explicit consent, so call get_taste_profile; “Just recommend something” → skip the question and use public data.",
                 "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
                 "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
                 "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
@@ -687,7 +692,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
       },
       {
         name: "recommend_storefront",
-        description: "Retrieve public Steam catalog recommendations without editorializing or changing the storefront UI. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Personalization defaults to none. Set personalization to local_library only after get_taste_profile succeeds following explicit user opt-in and only when recipientContext is self. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, or taste data are disclosed.",
+        description: "Retrieve public Steam catalog recommendations without editorializing or changing the storefront UI. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Find me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -964,17 +969,17 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         <div className="storefront-hero-mark" aria-hidden="true"><span>03</span><strong>STORE</strong><i /></div>
       </header>
 
-      <form className="storefront-search" role="search" onSubmit={(event) => event.preventDefault()}>
+      {!presentation ? <form className="storefront-search" role="search" onSubmit={(event) => event.preventDefault()}>
         <label><span aria-hidden="true">⌕</span><span className="sr-only">Search the store</span><input value={search} onChange={(event) => updateTextSearch(event.target.value)} placeholder="Search games, studios, genres, or tags" /></label>
         <select aria-label="Sort games" value={sort} onChange={(event) => { setSort(event.target.value as SortKey); setDirection(event.target.value === "title" ? "asc" : "desc"); setPage(0); }}>
           <option value="ownersMax">Most popular</option><option value="positiveRatio">Best reviewed</option><option value="reviewCount">Most reviewed</option><option value="ccu">Most active</option><option value="releaseYear">Newest</option><option value="priceCents">Price</option><option value="title">Title</option>
         </select>
         <button type="button" className="storefront-clear" onClick={clearSearch} disabled={!activeFilterCount && !presentation}>Clear</button>
-      </form>
+      </form> : null}
 
       {presentation ? <section className={"result-briefing mode-" + presentation.mode} aria-labelledby="result-briefing-title">
         <div><span>Composed by your browser</span><h2 id="result-briefing-title">{presentation.title}</h2><p>{presentation.explanation}</p></div>
-        <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontRankingField)).join(" · ") : "Visual discovery"}</span>}{presentation.excludeOwned && ownedExclusions.length ? <span>{ownedExclusions.length} owned games excluded</span> : null}</div>
+        <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontRankingField)).join(" · ") : "Visual discovery"}</span>}{presentation.excludeOwned && ownedExclusions.length ? <span>{ownedExclusions.length} owned games excluded</span> : null}<button type="button" onClick={clearSearch}><span aria-hidden="true">×</span> Clear personalized search</button></div>
       </section> : null}
 
       <div className="storefront-body">

@@ -12,7 +12,7 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 
 | Tool | Agent-visible result | Personal-data behavior | UI effect |
 | --- | --- | --- | --- |
-| `describe_storefront` | Public schema, capabilities, and safety rules | Does not read or return library data | None |
+| `describe_storefront` | Public schema, capabilities, safety rules, and the boolean `personalizationAvailable` signal | Returns no library titles, IDs, playtime, taste preferences, or profile data | None |
 | `exclude_owned_games` | `excludedCount` only | Matches public candidate IDs inside the page; returns no owned IDs or titles | None |
 | `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in and a game the user is choosing or buying for themselves; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
 | `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | None |
@@ -103,7 +103,22 @@ The response never includes the underlying library or taste profile.
 
 The library taste profile applies only when the user is choosing or buying the recommended game for themselves. Never use it for a gift, a friend or relative, a child, a household or group, or when the intended recipient is unclear. Those requests must keep `personalization: "none"`; owned-game filtering remains a separate local-only feature.
 
-Only offer taste personalization in an eligible self-directed request, as an explicit choice, for example:
+`describe_storefront` exposes only a non-sensitive boolean capability signal:
+
+```json
+{
+  "personalizationAvailable": true
+}
+```
+
+When the recipient is the user and that signal is true, ask once whether they want library-based personalization before recommending. If they decline, if they request an immediate answer, or if the signal is false, continue with `personalization: "none"`. Never offer library personalization for `someone_else` or `shared_group`.
+
+- “Find me a game” → offer personalization once.
+- “Find my nephew a game” → do not offer; use public data.
+- “Use my library” → treat this as explicit consent and call `get_taste_profile`.
+- “Just recommend something” → skip the question and use public data.
+
+The opt-in should name the local library and the self-directed purpose, for example:
 
 > Use my locally saved game library to personalize recommendations for a game I'm choosing for myself.
 

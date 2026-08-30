@@ -633,7 +633,7 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
         <AudienceOnboarding
           stage={editingAudience ? "audience_required" : workspace.onboarding.stage}
           audience={workspace.audience}
-          connecting={webMcpStatus === "checking"}
+          connectionStatus={webMcpStatus}
           canCancel={audienceReady}
           onCancel={() => setEditingAudience(false)}
         />

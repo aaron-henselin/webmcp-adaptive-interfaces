@@ -29,7 +29,7 @@ export default function DemoSwitcher({ active, children }: DemoSwitcherProps) {
   return <nav className="demo-switcher" aria-label="Steam Desk demos">
     <div className={`demo-switcher-inner${children ? " has-detail" : ""}`}>
       <div className="demo-switcher-brand">
-        <span>Steam Desk</span>
+        <span>A Personal Internet</span>
       </div>
       <div className="demo-switcher-options">
         {demos.map((demo) => <a

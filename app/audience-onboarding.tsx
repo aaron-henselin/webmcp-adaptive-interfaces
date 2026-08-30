@@ -1,16 +1,25 @@
 "use client";
 
 import { useState } from "react";
+import type { WebMcpStatus } from "./demo-switcher";
 import type { AudienceContext, OnboardingStage } from "./workspace-model";
 import "./audience-onboarding.css";
 
 type AudienceOnboardingProps = {
   stage: OnboardingStage;
   audience: AudienceContext;
-  connecting: boolean;
+  connectionStatus: WebMcpStatus;
   canCancel: boolean;
   onCancel?: () => void;
 };
+
+function ConnectionSignal({ unavailable = false }: { unavailable?: boolean }) {
+  return <div className={`audience-connection-signal${unavailable ? " is-unavailable" : ""}`} aria-hidden="true">
+    <span className="audience-connection-node node-browser" />
+    <span className="audience-connection-path"><i /></span>
+    <span className="audience-connection-node node-agent" />
+  </div>;
+}
 
 function timeGreeting() {
   const hour = new Date().getHours();
@@ -19,7 +28,7 @@ function timeGreeting() {
   return "Good evening";
 }
 
-export default function AudienceOnboarding({ stage, audience, connecting, canCancel, onCancel }: AudienceOnboardingProps) {
+export default function AudienceOnboarding({ stage, audience, connectionStatus, canCancel, onCancel }: AudienceOnboardingProps) {
   const [copied, setCopied] = useState(false);
   const audienceReady = Boolean(audience.firstName && audience.jobRole && audience.company);
   const proposalRequired = stage === "proposal_required" && audienceReady;
@@ -34,15 +43,17 @@ export default function AudienceOnboarding({ stage, audience, connecting, canCan
 
   if (stage === "audience_required" && !audienceReady) {
     return <div className="audience-onboarding audience-invitation">
-      {connecting ? <section className="audience-connecting" id="audience-brief-title" role="status" aria-live="polite">
-        <div className="audience-connection-signal" aria-hidden="true">
-          <span className="audience-connection-node node-browser" />
-          <span className="audience-connection-path"><i /></span>
-          <span className="audience-connection-node node-agent" />
+      {connectionStatus === "checking" ? <section className="audience-connecting" role="status" aria-live="polite" aria-labelledby="audience-brief-title">
+        <ConnectionSignal />
+        <p id="audience-brief-title">Connecting…</p>
+      </section> : connectionStatus === "preview" ? <section className="audience-unavailable" role="status" aria-labelledby="audience-brief-title">
+        <ConnectionSignal unavailable />
+        <div>
+          <h3 id="audience-brief-title">WebMCP isn’t available.</h3>
+          <p>Open this page in a browser with WebMCP support to start onboarding.</p>
         </div>
-        <p>Connecting…</p>
       </section> : <section className="audience-invitation-copy" aria-labelledby="audience-brief-title">
-        <h3 id="audience-brief-title">Make this site yours.</h3>
+        <h3 id="audience-brief-title">Make this page yours.</h3>
         <p>Say <strong>“onboard me”</strong> to get started.</p>
       </section>}
     </div>;

@@ -166,15 +166,6 @@
 }
 .builder-desk .workspace-block.is-selected::after { display: none; }
 
-.builder-desk .page-workspace-footer {
-  min-height: 32px;
-  justify-content: flex-end;
-  border-top: 0;
-  background: #fbfcfd;
-}
-.builder-desk .page-workspace-footer span:first-child,
-.builder-desk .page-workspace-footer span:nth-child(3) { display: none; }
-
 .builder-resource-panel {
   margin: 8px 18px 0;
   overflow: hidden;
@@ -730,8 +721,6 @@
 .workspace-empty > span { width: 48px; height: 48px; display: grid; place-items: center; border: 1px dashed #aebfc7; border-radius: 12px; color: var(--steam); font-size: 25px; }
 .workspace-empty strong { display: block; color: var(--ink); font-size: 13px; }
 .workspace-empty p { margin: 6px 0 0; color: #7d8992; font-size: 10px; }
-.page-workspace-footer { min-height: 39px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #dbe3e7; color: #84919a; background: white; font-size: 9px; }
-
 @media (max-width: 920px) {
   .span-third, .span-quarter { grid-column: span 6; }
   .engagement-dashboard { grid-template-columns: 1fr; }
@@ -749,14 +738,11 @@
   .builder-top-page-header .workspace-actions { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   .span-half, .span-third, .span-quarter { grid-column: span 12; }
   .workspace-report-header { align-items: flex-start; flex-direction: column; }
-  .page-workspace-footer { padding-block: 9px; align-items: flex-start; flex-direction: column; }
   .builder-site-shell { padding: 8px; }
   .builder-desk > .page-workspace { margin-inline: 0; }
   .builder-desk .page-workspace-header { padding: 10px 14px; }
   .builder-desk .page-workspace-header > div > p:last-child { display: none; }
   .builder-desk .page-canvas { min-height: calc(100vh - 192px); }
-  .builder-desk .page-workspace-footer { padding: 8px 12px; flex-direction: row; }
-  .builder-desk .page-workspace-footer span:nth-child(2) { display: none; }
   .builder-resource-panel { margin-inline: 10px; }
   .builder-resource-panel > .prompt-guide { margin-inline: 10px; }
   .engagement-filter-rail { grid-template-columns: 1fr 1fr; }

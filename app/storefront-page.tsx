@@ -246,12 +246,15 @@ function BuyButton({ game, inLibrary, adding, onAdd }: { game: CatalogGame; inLi
 
 type GameViewProps = { game: CatalogGame; highlights: HighlightField[]; inLibrary: boolean; adding: boolean; onAdd: (id: number) => void };
 
-function FeaturedGameCard({ game, editorial, inLibrary, adding, onAdd }: Omit<GameViewProps, "highlights"> & { editorial: FeaturedEditorial }) {
-  return <article className={"store-featured-card" + (inLibrary ? " is-owned" : "")}>
+function FeaturedGameCard({ game, editorial, inLibrary, adding, onAdd, isBestMatch = false }: Omit<GameViewProps, "highlights"> & { editorial: FeaturedEditorial; isBestMatch?: boolean }) {
+  return <article className={"store-featured-card" + (isBestMatch ? " is-best-match" : "") + (inLibrary ? " is-owned" : "")}>
     <GameArtwork game={game} />
     <div className="store-featured-copy">
-      <span className="store-featured-badge">{editorial.badge}</span>
-      <div><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
+      <div className="store-featured-badges">
+        {isBestMatch ? <span className="store-best-signal"><i aria-hidden="true">✦</i> Best match</span> : null}
+        <span className="store-featured-badge">{editorial.badge}</span>
+      </div>
+      <div className="store-featured-title"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
       <p className="store-featured-reason"><b>Why it fits</b>{editorial.reason}</p>
       <div className="store-featured-action"><strong>{formatPrice(game.priceCents)}</strong><BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} /></div>
     </div>
@@ -986,9 +989,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         <section className="storefront-results" aria-busy={loading} aria-live="polite">
           <div className="storefront-results-bar"><div><strong>{loading ? "Updating…" : total.toLocaleString() + " games"}</strong><span>{presentation ? activeMode + " view selected for this search" : "Conventional store results"}</span></div><div><span>{library.size} in library</span><b>{activeMode}</b></div></div>
           {loading ? <StorefrontResultsSkeleton mode={activeMode} /> : catalogError && !appliedRecommendation ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !games.length ? <div className="storefront-empty"><strong>No games match this search</strong><p>Clear a filter or try broader terms.</p><button type="button" onClick={clearSearch}>Clear search</button></div> : <>
-            {featuredGames.length ? <section className="store-featured" aria-labelledby="store-featured-title">
-              <div className="store-featured-heading"><span>Editor’s picks</span><h3 id="store-featured-title">Featured first</h3></div>
-              <div className="store-featured-grid">{featuredGames.map(({ game, editorial: item }) => <FeaturedGameCard key={game.id} game={game} editorial={item} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>
+            {featuredGames.length ? <section className={"store-featured" + (featuredGames.length === 1 ? " is-single" : "")} aria-labelledby="store-featured-title">
+              <div className="store-featured-heading"><span>{featuredGames.length === 1 ? "Curated standout" : "Curated shortlist"}</span><h3 id="store-featured-title">{featuredGames.length === 1 ? "Our best match for you" : "Top picks for you"}</h3></div>
+              <div className="store-featured-grid">{featuredGames.map(({ game, editorial: item }) => <FeaturedGameCard key={game.id} game={game} editorial={item} isBestMatch={featuredGames.length === 1} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>
             </section> : null}
             {algorithmicGames.length ? activeMode === "table" ? <GameTable games={algorithmicGames} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{algorithmicGames.map((game, index) => <RankingItem key={game.id} game={game} rank={featuredGames.length + visiblePage * PAGE_SIZE + index + 1} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{algorithmicGames.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{algorithmicGames.map((game) => <GameCard key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : null}
           </>}

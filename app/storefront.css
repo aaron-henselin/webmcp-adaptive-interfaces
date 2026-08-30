@@ -70,24 +70,40 @@
 .storefront-results-bar > div:last-child { display: flex; align-items: center; gap: 9px; }
 .storefront-results-bar b { padding: 6px 9px; border-radius: 6px; color: #287699; background: #e4f2f8; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 
-.store-featured { padding: 18px 16px 6px; border-bottom: 1px solid #dbe4e8; background: linear-gradient(180deg, #edf7fb, #f8fafb); }
-.store-featured-heading { margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
-.store-featured-heading span { color: #28799c; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
+.store-featured { position: relative; isolation: isolate; overflow: hidden; padding: 18px 16px 10px; border-bottom: 1px solid #cfdee5; background: radial-gradient(circle at 7% -35%,rgba(67,184,146,.3),transparent 35%),radial-gradient(circle at 94% -20%,rgba(118,81,212,.2),transparent 32%),linear-gradient(180deg,#eaf7fb,#f8fafb); }
+.store-featured::before { content: ""; position: absolute; z-index: -1; right: -90px; top: -118px; width: 270px; height: 270px; border: 1px solid rgba(118,81,212,.13); border-radius: 50%; box-shadow: 0 0 0 28px rgba(36,125,163,.035),0 0 0 62px rgba(67,184,146,.025); pointer-events: none; }
+.store-featured-heading { position: relative; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+.store-featured-heading span { color: #277c91; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
 .store-featured-heading h3 { margin: 0; color: #203b48; font-size: 15px; font-weight: 640; }
 .store-featured-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-.store-featured-card { min-width: 0; overflow: hidden; display: grid; grid-template-columns: minmax(180px,.9fr) minmax(220px,1.1fr); border: 1px solid #a9cddd; border-radius: 11px; background: white; box-shadow: 0 10px 24px rgba(31,79,102,.1); }
+.store-featured-card { position: relative; min-width: 0; overflow: hidden; display: grid; grid-template-columns: minmax(180px,.9fr) minmax(220px,1.1fr); border: 1px solid #9fcadb; border-radius: 11px; background: linear-gradient(145deg,#fff 62%,#f1f7ff); box-shadow: 0 12px 28px rgba(31,79,102,.12); }
+.store-featured-card::before { content: ""; position: absolute; z-index: 3; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg,#43b892,#38a9d2 54%,#7651d4); pointer-events: none; }
 .store-featured-card.is-owned { border-color: #9ccdb8; }
 .store-featured-card .store-art { height: 100%; min-height: 210px; aspect-ratio: auto; }
 .store-featured-copy { min-width: 0; padding: 15px; display: flex; flex-direction: column; align-items: flex-start; }
-.store-featured-badge { padding: 5px 8px; border-radius: 999px; color: #fff; background: #247da3; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .07em; text-transform: uppercase; }
-.store-featured-copy > div:nth-child(2) { margin-top: 13px; min-width: 0; }
-.store-featured-copy > div:nth-child(2) > span { color: #5e8193; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.store-featured-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.store-featured-badge, .store-best-signal { padding: 5px 8px; border-radius: 999px; color: #fff; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .07em; text-transform: uppercase; }
+.store-featured-badge { background: linear-gradient(100deg,#247da3,#6553bd); box-shadow: 0 4px 12px rgba(71,78,164,.18); }
+.store-best-signal { display: inline-flex; align-items: center; gap: 5px; color: #3f291f; background: linear-gradient(100deg,#f4c45e,#ef7862); box-shadow: 0 4px 13px rgba(222,110,73,.22); }
+.store-best-signal i { color: #fff8dc; font-size: 10px; font-style: normal; text-shadow: 0 1px 5px rgba(107,50,22,.28); animation: store-best-spark 2.6s ease-in-out infinite; }
+.store-featured-title { margin-top: 13px; min-width: 0; }
+.store-featured-title > span { color: #5e8193; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
 .store-featured-copy h3 { margin: 6px 0 0; color: #172b36; font-size: 19px; font-weight: 650; line-height: 1.15; letter-spacing: -.025em; }
-.store-featured-copy > div:nth-child(2) > p { margin: 5px 0 0; color: #84919a; font-size: 9px; }
+.store-featured-title > p { margin: 5px 0 0; color: #84919a; font-size: 9px; }
 .store-featured-reason { margin: 14px 0; color: #526c79; font-size: 10px; line-height: 1.55; }
 .store-featured-reason b { display: block; margin-bottom: 4px; color: #245f7a; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .store-featured-action { width: 100%; margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .store-featured-action > strong { color: #203944; font: 650 11px/1 "Cascadia Mono", ui-monospace, monospace; }
+.store-featured.is-single { padding: 21px 18px 16px; background: radial-gradient(circle at 5% -25%,rgba(67,184,146,.35),transparent 34%),radial-gradient(circle at 96% -10%,rgba(239,111,97,.22),transparent 34%),linear-gradient(135deg,#e9f8fb,#f7f1ff 64%,#fff7ed); }
+.store-featured.is-single .store-featured-heading span { color: #9a4e43; }
+.store-featured.is-single .store-featured-grid { grid-template-columns: 1fr; }
+.store-featured-card.is-best-match { grid-template-columns: minmax(300px,1.15fr) minmax(300px,.85fr); border-color: #86bfc0; background: linear-gradient(120deg,#fff 56%,#f8f3ff 78%,#fff6eb); box-shadow: 0 16px 38px rgba(48,75,105,.18),0 4px 12px rgba(239,111,97,.08); }
+.store-featured-card.is-best-match::before { height: 5px; background: linear-gradient(90deg,#ef6f61 0 25%,#f4c45e 25% 49%,#43b892 49% 74%,#7651d4 74%); }
+.store-featured-card.is-best-match .store-art { min-height: 272px; }
+.store-featured-card.is-best-match .store-featured-copy { padding: 22px; }
+.store-featured-card.is-best-match .store-featured-copy h3 { font-size: clamp(22px,2.6vw,30px); }
+.store-featured-card.is-best-match .store-featured-reason { max-width: 520px; font-size: 11px; }
+@keyframes store-best-spark { 0%,100% { transform: scale(.9) rotate(-8deg); opacity: .78; } 50% { transform: scale(1.18) rotate(7deg); opacity: 1; } }
 
 .store-skeleton { min-height: 410px; }
 .store-skeleton-grid { padding: 16px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
@@ -208,6 +224,7 @@
   .result-briefing { grid-template-columns: 1fr; gap: 16px; }
   .briefing-recipe { justify-self: stretch; }
   .storefront-body { grid-template-columns: 200px minmax(0,1fr); }
+  .store-featured-card.is-best-match { grid-template-columns: minmax(220px,1fr) minmax(250px,1fr); }
   .store-list-item { grid-template-columns: auto minmax(0,1fr) auto; }
   .store-list-metrics, .store-skeleton-list .store-skeleton-metrics { display: none; }
   .store-skeleton-list .store-skeleton-item { grid-template-columns: 118px minmax(0,1fr) 118px; }
@@ -226,9 +243,11 @@
   .storefront-facets { min-height: 0; border-right: 0; border-bottom: 1px solid #d3dde2; }
   .storefront-facets fieldset { padding: 13px 15px; }
   .facet-chips { max-height: 58px; overflow: hidden; }
-  .store-featured { padding: 14px 10px 5px; }
-  .store-featured-card { grid-template-columns: 1fr; }
+  .store-featured, .store-featured.is-single { padding: 14px 10px 9px; }
+  .store-featured-card, .store-featured-card.is-best-match { grid-template-columns: 1fr; }
   .store-featured-card .store-art { min-height: 0; aspect-ratio: 460/215; }
+  .store-featured-card.is-best-match .store-art { min-height: 0; }
+  .store-featured-card.is-best-match .store-featured-copy { padding: 17px; }
   .store-grid, .store-skeleton-grid { padding: 10px; grid-template-columns: 1fr; }
   .store-list, .store-ranking, .store-skeleton-list, .store-skeleton-ranking { padding: 8px; }
   .store-list-item { grid-template-columns: 92px minmax(0,1fr); }
@@ -249,5 +268,5 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .store-card, .store-art::after, .store-buy { transition: none; }
-  .storefront-demo-host::before, .storefront-demo-host::after, .store-buy.is-adding, .store-skeleton-block { animation: none; }
+  .storefront-demo-host::before, .storefront-demo-host::after, .store-buy.is-adding, .store-skeleton-block, .store-best-signal i { animation: none; }
 }

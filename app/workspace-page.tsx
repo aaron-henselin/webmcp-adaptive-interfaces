@@ -618,14 +618,16 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
         <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
         <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
       </> : null}
-      <button type="button" className={`suggest-report add-widget${showWidgetPrompts ? " open" : ""}`} aria-label={showWidgetPrompts ? "Close widget suggestions" : "Add a widget"} aria-expanded={showWidgetPrompts} aria-controls="widget-prompt-guide" onClick={() => setShowWidgetPrompts((value) => !value)}>
-        Add a widget <span aria-hidden="true">+</span>
-      </button>
-      {editMode
-        ? <button type="button" className="edit-page-toggle is-active" onClick={() => setPageEditing(false)}>Done editing</button>
-        : <button type="button" className="edit-page-toggle" onClick={() => setPageEditing(true)}>Edit page</button>}
+      <div className="workspace-primary-actions" role="group" aria-label="Page actions">
+        {editMode
+          ? <button type="button" className="edit-page-toggle is-active" onClick={() => setPageEditing(false)}>Done editing</button>
+          : <button type="button" className="edit-page-toggle" onClick={() => setPageEditing(true)}>Edit page</button>}
+        <button type="button" className={`suggest-report add-widget${showWidgetPrompts ? " open" : ""}`} aria-label={showWidgetPrompts ? "Close widget suggestions" : "Add a widget"} aria-expanded={showWidgetPrompts} aria-controls="widget-prompt-guide" onClick={() => setShowWidgetPrompts((value) => !value)}>
+          Add a widget <span aria-hidden="true">+</span>
+        </button>
+      </div>
     </div>
-    {showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><p className="eyebrow"><span /> Ask naturally</p><h2 id="widget-prompt-guide-title">Helpful sample prompts</h2></div><p>Start with the outcome you need. Steam Desk will choose a fitting widget and use your role and company to make it relevant.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
+    {showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><h2 id="widget-prompt-guide-title">You can ask…</h2></div><p>Start with the outcome you need. Steam Desk will choose a fitting widget and use your role and company to make it relevant.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
   </div> : null;
   return <><DemoSwitcher active="builder">{pageHeader}</DemoSwitcher><main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk dashboard demo">
     <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""} ${editMode ? "edit-mode" : "view-mode"}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>

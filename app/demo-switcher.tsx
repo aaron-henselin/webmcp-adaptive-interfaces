@@ -14,7 +14,7 @@ const demos = [
     href: "/",
     number: "01",
     title: "Data Table Demo",
-    description: "One component, shaped around you",
+    description: "See how a familiar component can be transformed around you",
   },
   {
     id: "builder" as const,
@@ -26,10 +26,11 @@ const demos = [
 ];
 
 export default function DemoSwitcher({ active, children }: DemoSwitcherProps) {
-  return <nav className="demo-switcher" aria-label="Steam Desk demos">
+  return <nav className="demo-switcher" aria-label="A Personal Internet demos">
     <div className={`demo-switcher-inner${children ? " has-detail" : ""}`}>
       <div className="demo-switcher-brand">
         <span>A Personal Internet</span>
+        <small>See how AI rewrites what it means to be yours.</small>
       </div>
       <div className="demo-switcher-options">
         {demos.map((demo) => <a

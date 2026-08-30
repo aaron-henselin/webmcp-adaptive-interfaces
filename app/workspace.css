@@ -45,6 +45,10 @@
   text-shadow: 0 1px 14px rgba(110, 204, 239, .18);
 }
 
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-brand small {
+  color: #b8cdd6;
+}
+
 .builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-options a {
   color: #b9cbd3;
 }
@@ -264,6 +268,7 @@
 .page-workspace-header > div > p:last-child { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
 
 .workspace-actions { display: flex; align-items: center; gap: 7px; }
+.workspace-primary-actions { display: inline-flex; align-items: stretch; }
 .workspace-actions > span {
   margin-right: 4px;
   color: #72808a;
@@ -296,6 +301,10 @@
   font-size: 10px;
 }
 .workspace-actions button:disabled { color: #a9b1b6; cursor: default; }
+.workspace-actions .workspace-primary-actions > button { border-radius: 0; }
+.workspace-actions .workspace-primary-actions > button:first-child { border-radius: 8px 0 0 8px; }
+.workspace-actions .workspace-primary-actions > button:last-child { margin-left: -1px; border-radius: 0 8px 8px 0; }
+.workspace-actions .workspace-primary-actions > button:focus-visible { position: relative; z-index: 1; }
 .workspace-actions .add-widget {
   min-width: 142px;
   padding: 0 12px;

@@ -17,10 +17,10 @@
 .storefront { width: min(1380px, 100%); margin: 0 auto; overflow: hidden; border: 1px solid rgba(21,40,54,.2); border-radius: 18px; background: #f7f9fa; box-shadow: 0 28px 80px rgba(18,35,47,.14); }
 
 .storefront-search { position: relative; z-index: 3; min-height: 76px; padding: 14px 18px; display: grid; grid-template-columns: minmax(260px,1fr) 190px auto; gap: 10px; border-bottom: 1px solid #cbd6dc; background: #f5f8fa; box-shadow: 0 10px 28px rgba(25,45,58,.08); }
-.storefront-search label { min-width: 0; height: 47px; padding: 0 15px; display: flex; align-items: center; gap: 11px; border: 1px solid #bdcad2; border-radius: 9px; background: white; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }
+.storefront-search label { min-width: 0; height: 47px; padding: 0 15px; display: flex; align-items: center; gap: 11px; border: 1px solid #bdcad2; border-radius: 0; background: white; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }
 .storefront-search label > span:first-child { color: #547489; font-size: 22px; }
 .storefront-search input { width: 100%; border: 0; outline: 0; color: #17202a; background: transparent; font-size: 14px; }
-.storefront-search select, .storefront-clear { height: 47px; padding: 0 14px; border: 1px solid #bdcad2; border-radius: 9px; color: #2d3f4b; background: white; font-size: 12px; }
+.storefront-search select, .storefront-clear { height: 47px; padding: 0 14px; border: 1px solid #bdcad2; border-radius: 0; color: #2d3f4b; background: white; font-size: 12px; }
 .storefront-clear { min-width: 82px; cursor: pointer; }
 .storefront-clear:disabled { color: #9da9b0; cursor: default; }
 

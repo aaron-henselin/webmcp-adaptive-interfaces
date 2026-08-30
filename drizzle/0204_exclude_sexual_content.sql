@@ -1,5 +1,5 @@
-CREATE TABLE catalog_content_exclusions (app_id integer PRIMARY KEY NOT NULL, reason text NOT NULL, policy_version integer NOT NULL);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+CREATE TABLE IF NOT EXISTS catalog_content_exclusions (app_id integer PRIMARY KEY NOT NULL, reason text NOT NULL, policy_version integer NOT NULL);
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (570,'mature-content-note',1),
 (1300,'tag:nudity',1),
 (3170,'tag:nudity',1),
@@ -500,7 +500,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (483960,'tag:nudity,tag:sexual content,tag:nsfw,mature-content-note',1),
 (484950,'tag:nudity,tag:sexual content,tag:hentai',1),
 (485040,'tag:nudity,tag:sexual content',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (485380,'tag:nudity,tag:sexual content',1),
 (485510,'tag:nudity',1),
 (485870,'tag:nudity',1),
@@ -1001,7 +1001,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (701420,'tag:sexual content,tag:nudity',1),
 (701540,'tag:sexual content,tag:nudity,tag:nsfw',1),
 (701720,'tag:nsfw',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (702050,'tag:sexual content,tag:nudity,mature-content-note',1),
 (702210,'tag:sexual content,tag:nudity',1),
 (702430,'tag:sexual content',1),
@@ -1502,7 +1502,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (886730,'mature-content-note',1),
 (886960,'tag:sexual content,tag:nudity',1),
 (886970,'tag:sexual content',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (887490,'mature-content-note',1),
 (887530,'tag:sexual content,tag:nudity,tag:hentai,tag:nsfw,mature-content-note',1),
 (887720,'tag:nudity',1),
@@ -2003,7 +2003,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1007800,'tag:sexual content,tag:nudity,tag:hentai,mature-content-note',1),
 (1007840,'mature-content-note',1),
 (1008020,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1008180,'mature-content-note',1),
 (1008210,'mature-content-note',1),
 (1008230,'mature-content-note',1),
@@ -2504,7 +2504,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1116340,'mature-content-note',1),
 (1116470,'mature-content-note',1),
 (1116660,'tag:sexual content,mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1116790,'tag:sexual content',1),
 (1116870,'tag:sexual content,tag:nudity,mature-content-note',1),
 (1116910,'mature-content-note',1),
@@ -3005,7 +3005,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1213740,'tag:sexual content,tag:nudity',1),
 (1214280,'tag:sexual content',1),
 (1214490,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1215060,'tag:nudity',1),
 (1215260,'tag:sexual content,tag:nudity,tag:hentai',1),
 (1215770,'mature-content-note',1),
@@ -3506,7 +3506,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1342110,'tag:sexual content,tag:hentai',1),
 (1342120,'tag:sexual content,tag:nudity,tag:hentai',1),
 (1342260,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1342290,'mature-content-note',1),
 (1342410,'tag:sexual content,tag:nudity,mature-content-note',1),
 (1343090,'mature-content-note',1),
@@ -4007,7 +4007,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1466180,'mature-content-note',1),
 (1466500,'mature-content-note',1),
 (1466520,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1466680,'tag:sexual content,tag:nudity,mature-content-note',1),
 (1466690,'tag:sexual content,tag:nudity,tag:hentai,mature-content-note',1),
 (1466700,'mature-content-note',1),
@@ -4508,7 +4508,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1582720,'tag:nudity,tag:sexual content,mature-content-note',1),
 (1582890,'mature-content-note',1),
 (1583230,'tag:sexual content,tag:nudity,tag:nsfw,mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1583240,'mature-content-note',1),
 (1583500,'tag:sexual content,tag:nudity,tag:hentai,tag:nsfw,mature-content-note',1),
 (1583650,'mature-content-note',1),
@@ -5009,7 +5009,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1716360,'mature-content-note',1),
 (1716480,'mature-content-note',1),
 (1716910,'tag:sexual content,tag:nudity',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1717130,'mature-content-note',1),
 (1717170,'mature-content-note',1),
 (1717610,'mature-content-note',1),
@@ -5510,7 +5510,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1831130,'mature-content-note',1),
 (1831260,'mature-content-note',1),
 (1831560,'tag:sexual content,tag:nudity,tag:nsfw',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1831680,'tag:sexual content',1),
 (1831780,'mature-content-note',1),
 (1831790,'mature-content-note',1),
@@ -6011,7 +6011,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1950570,'mature-content-note',1),
 (1951040,'mature-content-note',1),
 (1951300,'tag:sexual content,tag:nudity,tag:nsfw',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (1951520,'mature-content-note',1),
 (1951540,'mature-content-note',1),
 (1951880,'mature-content-note',1),
@@ -6512,7 +6512,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2091650,'tag:nudity',1),
 (2092240,'mature-content-note',1),
 (2092260,'tag:sexual content,tag:nudity',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2092530,'mature-content-note',1),
 (2093100,'tag:sexual content,tag:nudity',1),
 (2093420,'tag:sexual content,tag:nudity,mature-content-note',1),
@@ -7013,7 +7013,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2210100,'mature-content-note',1),
 (2210450,'mature-content-note',1),
 (2210630,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2210710,'tag:sexual content,mature-content-note',1),
 (2210780,'mature-content-note',1),
 (2210980,'tag:sexual content,mature-content-note',1),
@@ -7514,7 +7514,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2335050,'mature-content-note',1),
 (2335200,'mature-content-note',1),
 (2335220,'tag:nudity,mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2335620,'mature-content-note',1),
 (2335810,'mature-content-note',1),
 (2336100,'mature-content-note',1),
@@ -8015,7 +8015,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2457630,'mature-content-note',1),
 (2457960,'mature-content-note',1),
 (2458330,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2458480,'mature-content-note',1),
 (2458530,'tag:sexual content,tag:hentai,tag:nudity,tag:nsfw',1),
 (2458560,'mature-content-note',1),
@@ -8516,7 +8516,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2601190,'mature-content-note',1),
 (2601240,'tag:hentai,tag:nsfw,mature-content-note',1),
 (2601700,'tag:sexual content',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2601850,'mature-content-note',1),
 (2602000,'mature-content-note',1),
 (2602310,'mature-content-note',1),
@@ -9017,7 +9017,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2737970,'tag:sexual content',1),
 (2738080,'mature-content-note',1),
 (2738630,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2738670,'mature-content-note',1),
 (2738710,'mature-content-note',1),
 (2738860,'mature-content-note',1),
@@ -9518,7 +9518,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2884070,'mature-content-note',1),
 (2884740,'mature-content-note',1),
 (2884750,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (2884760,'mature-content-note',1),
 (2886110,'mature-content-note',1),
 (2886660,'mature-content-note',1),
@@ -10019,7 +10019,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3038520,'mature-content-note',1),
 (3038740,'mature-content-note',1),
 (3038920,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3038940,'mature-content-note',1),
 (3039010,'mature-content-note',1),
 (3040110,'mature-content-note',1),
@@ -10520,7 +10520,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3195400,'mature-content-note',1),
 (3195530,'mature-content-note',1),
 (3195690,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3196180,'mature-content-note',1),
 (3196310,'mature-content-note',1),
 (3196330,'mature-content-note',1),
@@ -11021,7 +11021,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3350290,'mature-content-note',1),
 (3350380,'mature-content-note',1),
 (3350440,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3351140,'mature-content-note',1),
 (3351690,'tag:hentai',1),
 (3352970,'mature-content-note',1),
@@ -11522,7 +11522,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3513250,'mature-content-note',1),
 (3513600,'mature-content-note',1),
 (3513970,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3514320,'mature-content-note',1),
 (3515040,'mature-content-note',1),
 (3515380,'mature-content-note',1),
@@ -12023,7 +12023,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3687910,'mature-content-note',1),
 (3688030,'mature-content-note',1),
 (3688470,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3688540,'mature-content-note',1),
 (3689530,'mature-content-note',1),
 (3689950,'mature-content-note',1),
@@ -12524,7 +12524,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3861170,'mature-content-note',1),
 (3861290,'mature-content-note',1),
 (3861430,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (3861590,'mature-content-note',1),
 (3861770,'mature-content-note',1),
 (3862660,'mature-content-note',1),
@@ -13025,7 +13025,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4034640,'mature-content-note',1),
 (4034680,'mature-content-note',1),
 (4035060,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4035360,'mature-content-note',1),
 (4035570,'mature-content-note',1),
 (4035610,'mature-content-note',1),
@@ -13526,7 +13526,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4212530,'mature-content-note',1),
 (4212640,'mature-content-note',1),
 (4212800,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4212910,'mature-content-note',1),
 (4213060,'mature-content-note',1),
 (4213600,'mature-content-note',1),
@@ -14027,7 +14027,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4449420,'mature-content-note',1),
 (4449460,'mature-content-note',1),
 (4449830,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4450060,'mature-content-note',1),
 (4450350,'mature-content-note',1),
 (4450450,'mature-content-note',1),
@@ -14528,7 +14528,7 @@ INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4758050,'mature-content-note',1),
 (4758210,'mature-content-note',1),
 (4758360,'mature-content-note',1);
-INSERT INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
+INSERT OR REPLACE INTO catalog_content_exclusions (app_id, reason, policy_version) VALUES
 (4758370,'mature-content-note',1),
 (4759860,'mature-content-note',1),
 (4760040,'mature-content-note',1),

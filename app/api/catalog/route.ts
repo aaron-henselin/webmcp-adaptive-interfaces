@@ -50,6 +50,8 @@ const RANK_NORMALIZERS: Record<keyof typeof NUMERIC_FIELDS, string> = {
   releaseYear: "MAX(0, MIN((COALESCE(g.release_year, 1990) - 1990) / 40.0, 1))",
 };
 
+type SqlExpression = { sql: string; values: Array<string | number> };
+
 function boundedInteger(value: string | null, fallback: number, minimum: number, maximum: number) {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
@@ -74,27 +76,73 @@ function parseArray(value: string | null) {
   }
 }
 
-function rankingExpression(value: string | null) {
+function normalizedTextArray(value: string | null, limit: number) {
+  return parseArray(value)
+    .map((item) => String(item).trim().replace(/\s+/g, " ").slice(0, 80))
+    .filter(Boolean)
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
+    .slice(0, limit);
+}
+
+function tagMatchCountExpression(tags: string[]): SqlExpression {
+  if (!tags.length) return { sql: "0", values: [] };
+  return {
+    sql: `(SELECT COUNT(*) FROM game_tags intent_gt JOIN tags intent_t ON intent_t.id = intent_gt.tag_id WHERE intent_gt.app_id = g.app_id AND LOWER(intent_t.name) IN (${tags.map(() => "LOWER(?)").join(", ")}))`,
+    values: tags,
+  };
+}
+
+function intentExpressions(params: URLSearchParams) {
+  const reference = (params.get("reference") ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+  const includeTags = normalizedTextArray(params.get("includeTags"), 12);
+  const preferredTags = normalizedTextArray(params.get("preferredTags"), 12);
+  const excludeTags = normalizedTextArray(params.get("excludeTags"), 12);
+  const coverageTags = [...includeTags, ...preferredTags].filter((tag, index, tags) => tags.findIndex((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()) === index);
+  const includeCount = tagMatchCountExpression(includeTags);
+  const preferredCount = tagMatchCountExpression(preferredTags);
+  const coverageCount = tagMatchCountExpression(coverageTags);
+  const referenceTerm = reference ? "CASE WHEN INSTR(LOWER(g.name), LOWER(?)) > 0 THEN 1.0 ELSE 0.0 END" : "0.0";
+  const intentDenominator = includeTags.length * 2 + preferredTags.length + (reference ? 1 : 0);
+  return {
+    reference,
+    includeTags,
+    preferredTags,
+    excludeTags,
+    tagCoverage: {
+      sql: coverageTags.length ? `(CAST(${coverageCount.sql} AS REAL) / ${coverageTags.length})` : "0.0",
+      values: coverageCount.values,
+    } satisfies SqlExpression,
+    intentFit: {
+      sql: intentDenominator ? `((2.0 * ${includeCount.sql}) + ${preferredCount.sql} + ${referenceTerm}) / ${intentDenominator}` : "0.0",
+      values: [...includeCount.values, ...preferredCount.values, ...(reference ? [reference] : [])],
+    } satisfies SqlExpression,
+  };
+}
+
+function rankingExpression(value: string | null, intent: ReturnType<typeof intentExpressions>): SqlExpression | null {
   const factors = parseArray(value).slice(0, 5);
   const terms: string[] = [];
+  const values: Array<string | number> = [];
   let totalWeight = 0;
   for (const factor of factors) {
     if (!factor || typeof factor !== "object") continue;
     const item = factor as Record<string, unknown>;
-    const field = String(item.field ?? "") as keyof typeof NUMERIC_FIELDS;
-    if (!(field in NUMERIC_FIELDS)) continue;
+    const field = String(item.field ?? "");
     const weight = boundedNumber(item.weight, 0, 0, 1);
     if (!weight) continue;
-    const normalized = RANK_NORMALIZERS[field];
+    const intentExpression = field === "intentFit" ? intent.intentFit : field === "tagCoverage" ? intent.tagCoverage : null;
+    const normalized = intentExpression?.sql ?? RANK_NORMALIZERS[field as keyof typeof NUMERIC_FIELDS];
+    if (!normalized) continue;
     const term = item.direction === "lower" ? `(1 - (${normalized}))` : `(${normalized})`;
     terms.push(`(${weight.toFixed(4)} * ${term})`);
+    if (intentExpression) values.push(...intentExpression.values);
     totalWeight += weight;
   }
   if (!terms.length || totalWeight <= 0) return null;
-  return `(${terms.join(" + ")}) / ${totalWeight.toFixed(4)}`;
+  return { sql: `(${terms.join(" + ")}) / ${totalWeight.toFixed(4)}`, values };
 }
 
-function filters(params: URLSearchParams) {
+function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpressions>) {
   const clauses: string[] = [];
   const values: Array<string | number> = [];
   const search = ftsQuery((params.get("search") ?? "").slice(0, 120));
@@ -112,6 +160,15 @@ function filters(params: URLSearchParams) {
     .map((value) => Number(value))
     .filter((value) => Number.isInteger(value) && value > 0)
     .slice(0, 200);
+
+  if (intent.includeTags.length) {
+    clauses.push(`EXISTS (SELECT 1 FROM game_tags include_gt JOIN tags include_t ON include_t.id = include_gt.tag_id WHERE include_gt.app_id = g.app_id AND LOWER(include_t.name) IN (${intent.includeTags.map(() => "LOWER(?)").join(", ")}))`);
+    values.push(...intent.includeTags);
+  }
+  if (intent.excludeTags.length) {
+    clauses.push(`NOT EXISTS (SELECT 1 FROM game_tags exclude_gt JOIN tags exclude_t ON exclude_t.id = exclude_gt.tag_id WHERE exclude_gt.app_id = g.app_id AND LOWER(exclude_t.name) IN (${intent.excludeTags.map(() => "LOWER(?)").join(", ")}))`);
+    values.push(...intent.excludeTags);
+  }
 
   if (appIds.length) {
     clauses.push(`g.app_id IN (${appIds.map(() => "?").join(", ")})`);
@@ -186,10 +243,11 @@ export async function GET(request: Request) {
     const page = boundedInteger(url.searchParams.get("page"), 0, 0, 100_000);
     const pageSize = boundedInteger(url.searchParams.get("pageSize"), 12, 1, 100);
     const sort = url.searchParams.get("sort") as keyof typeof SORT_FIELDS;
-    const rankingSql = rankingExpression(url.searchParams.get("ranking"));
-    const sortSql = rankingSql ? "rankScore" : SORT_FIELDS[sort] ?? SORT_FIELDS.ownersMax;
-    const direction = rankingSql ? "DESC" : url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
-    const where = filters(url.searchParams);
+    const intent = intentExpressions(url.searchParams);
+    const ranking = rankingExpression(url.searchParams.get("ranking"), intent);
+    const sortSql = ranking ? "rankScore" : SORT_FIELDS[sort] ?? SORT_FIELDS.ownersMax;
+    const direction = ranking ? "DESC" : url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
+    const where = filters(url.searchParams, intent);
     const database = catalogDb();
     const pageSql = `SELECT
       g.app_id AS id,
@@ -214,7 +272,9 @@ export async function GET(request: Request) {
       g.median_2weeks AS median2Weeks,
       g.release_date AS releaseDate,
       g.release_year AS releaseYear,
-      ${rankingSql ?? "NULL"} AS rankScore,
+      ${ranking?.sql ?? "NULL"} AS rankScore,
+      ${intent.intentFit.sql} AS intentFit,
+      ${intent.tagCoverage.sql} AS tagCoverage,
       COALESCE((SELECT json_group_array(name) FROM (SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id ORDER BY ge.name)), '[]') AS genres,
       COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id ORDER BY gt.weight DESC, t.name LIMIT 12)), '[]') AS tags
     FROM games g
@@ -224,7 +284,7 @@ export async function GET(request: Request) {
 
     const statements = [
       database.prepare(`SELECT COUNT(*) AS total FROM games g ${where.sql}`).bind(...where.values),
-      database.prepare(pageSql).bind(...where.values, pageSize, page * pageSize),
+      database.prepare(pageSql).bind(...(ranking?.values ?? []), ...intent.intentFit.values, ...intent.tagCoverage.values, ...where.values, pageSize, page * pageSize),
       database.prepare("SELECT schema_version AS schemaVersion, source_filename AS sourceFilename, source_sha256 AS sourceSha256, imported_at AS importedAt, record_count AS recordCount FROM catalog_imports ORDER BY id DESC LIMIT 1"),
       database.prepare(`SELECT g.owners AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY g.owners ORDER BY MAX(g.owners_max) DESC`).bind(...where.values),
       database.prepare(`SELECT ${REVIEW_BAND_SQL} AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY label ORDER BY MIN(CASE label WHEN '95%+ positive' THEN 1 WHEN '90–94% positive' THEN 2 WHEN '80–89% positive' THEN 3 WHEN '70–79% positive' THEN 4 WHEN 'Below 70%' THEN 5 ELSE 6 END)`).bind(...where.values),
@@ -244,7 +304,7 @@ export async function GET(request: Request) {
         sourceFilename: String(imported?.sourceFilename ?? "games.json"),
         sourceSha256: String(imported?.sourceSha256 ?? ""),
       },
-      query: { total, page, pageSize, ranked: Boolean(rankingSql) },
+      query: { total, page, pageSize, ranked: Boolean(ranking) },
       games,
       distributions: { owners: ownersResult.results, reviews: reviewsResult.results, price: priceResult.results },
       facets: { genres: genresResult.results, tags: tagsResult.results },

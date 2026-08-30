@@ -5,6 +5,9 @@ export const metadata: Metadata = {
   title: 'Steam Desk — database-backed Steam catalog',
   description: 'Compare two WebMCP demos for Steam data: a customizable data table and a local drag-and-drop dashboard.',
   metadataBase: new URL(process.env.SITE_ORIGIN ?? 'https://release-desk-calendar.ahenselin.chatgpt.site'),
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+  },
   openGraph: {
     title: 'Steam Desk — database-backed Steam catalog',
     description: 'Compare two WebMCP demos for Steam data: a customizable data table and a local drag-and-drop dashboard.',

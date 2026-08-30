@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DemoSwitcher, { type WebMcpStatus, webMcpStatusLabel } from "./demo-switcher";
-import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor } from "./catalog-data";
+import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField } from "./catalog-data";
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
@@ -13,7 +13,9 @@ const PRICE_BANDS = ["All prices", "Free", "Under $10", "$10–$29.99", "$30–$
 const SORTS = ["ownersMax", "title", "priceCents", "positiveRatio", "reviewCount", "ccu", "releaseYear"] as const;
 const LAYOUTS = ["grid", "list", "table", "ranking"] as const;
 const NUMERIC_FIELDS: StorefrontNumericField[] = ["positiveRatio", "reviewCount", "priceCents", "ownersMax", "ccu", "averageForever", "releaseYear"];
-const HIGHLIGHT_FIELDS = ["positiveRatio", "reviewCount", "ownersMax", "ccu", "releaseYear", "averageForever", "publisher"] as const;
+const INTENT_FIELDS = ["intentFit", "tagCoverage"] as const;
+const RANKING_FIELDS: StorefrontRankingField[] = [...INTENT_FIELDS, ...NUMERIC_FIELDS];
+const HIGHLIGHT_FIELDS = ["intentFit", "tagCoverage", "positiveRatio", "reviewCount", "ownersMax", "ccu", "releaseYear", "averageForever", "publisher"] as const;
 const SKELETON_ITEMS = Array.from({ length: PAGE_SIZE }, (_, index) => index);
 
 type LayoutMode = typeof LAYOUTS[number];
@@ -21,7 +23,9 @@ type SortKey = typeof SORTS[number];
 type HighlightField = typeof HIGHLIGHT_FIELDS[number];
 type FacetBand = { id: string; label: string; min?: number; max?: number };
 type CustomFacet = { id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
-type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean };
+type FeaturedEditorial = { appId: number; badge: string; reason: string };
+type EditorialCuration = { headline: string; summary: string; featured: FeaturedEditorial[]; orderedAppIds: number[] };
+type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean; editorial?: EditorialCuration };
 type PrivateTasteProfile = { genres: string[]; tags: string[] };
 type PendingRecommendation = {
   id: string;
@@ -34,16 +38,36 @@ type PendingRecommendation = {
   sort: SortKey;
   direction: "asc" | "desc";
   presentation: SearchPresentation;
+  results: CatalogGame[];
+  resultTotal: number;
+  curation?: EditorialCuration;
+};
+type ApplyReceipt = { rendered: true; featuredAppIds: number[]; visibleAppIds: number[]; summaryVisible: boolean };
+type StorefrontRuntime = {
+  catalog: { current: CatalogPage | null };
+  customFacets: { current: CustomFacet[] };
+  library: { current: Set<number> };
+  applyRecommendation: (recommendation: PendingRecommendation) => Promise<ApplyReceipt>;
+  saveFacet: (facets: CustomFacet[]) => void;
+  removeFacet: (facetId: string) => void;
+  clearSearch: () => void;
 };
 type StorefrontPageProps = { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void };
+
+let storefrontRuntime: StorefrontRuntime | null = null;
+let privateTasteProfileState: PrivateTasteProfile | null = null;
+const storefrontRecommendations = new Map<string, PendingRecommendation>();
+const storefrontRegistrations = new WeakMap<WebMCPContext, Promise<void>>();
 
 const RECOMMEND_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
     query: { type: "string", maxLength: 120, description: "Concise catalog search terms." },
-    title: { type: "string", maxLength: 90, description: "Heading that states the interpreted shopping intent." },
-    explanation: { type: "string", maxLength: 180, description: "Why this result layout and ordering fit the request." },
+    reference: { type: "string", maxLength: 120, description: "A known game or franchise that anchors similarity intent without being treated as a literal catalog search." },
+    includeTags: { type: "array", maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 }, description: "Relevant tags that candidates should cover. At least one must match when provided." },
+    preferredTags: { type: "array", maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 }, description: "Soft preference tags that improve intentFit and tagCoverage." },
+    excludeTags: { type: "array", maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 }, description: "Tags that disqualify candidates." },
     genre: { type: "string", maxLength: 80 },
     tag: { type: "string", maxLength: 80 },
     priceBand: { type: "string", enum: PRICE_BANDS },
@@ -70,7 +94,7 @@ const RECOMMEND_SCHEMA = {
           items: {
             type: "object", additionalProperties: false,
             properties: {
-              field: { type: "string", enum: NUMERIC_FIELDS },
+              field: { type: "string", enum: RANKING_FIELDS },
               weight: { type: "number", exclusiveMinimum: 0, maximum: 1 },
               direction: { type: "string", enum: ["higher", "lower"] },
               label: { type: "string", maxLength: 40 },
@@ -83,6 +107,30 @@ const RECOMMEND_SCHEMA = {
     },
   },
   required: ["query"],
+};
+
+const CURATE_RECOMMENDATION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    recommendationId: { type: "string", minLength: 1, maxLength: 80, description: "The opaque ID returned by recommend_storefront." },
+    headline: { type: "string", minLength: 1, maxLength: 90 },
+    summary: { type: "string", minLength: 1, maxLength: 240, description: "Overall editorial rationale shown above the results." },
+    featured: {
+      type: "array", maxItems: 6,
+      items: {
+        type: "object", additionalProperties: false,
+        properties: {
+          appId: { type: "integer", minimum: 1 },
+          badge: { type: "string", minLength: 1, maxLength: 40 },
+          reason: { type: "string", minLength: 1, maxLength: 220, description: "The Why it fits sentence for this featured game." },
+        },
+        required: ["appId", "badge", "reason"],
+      },
+    },
+    orderedAppIds: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true, items: { type: "integer", minimum: 1 } },
+  },
+  required: ["recommendationId", "headline", "summary", "featured", "orderedAppIds"],
 };
 
 const APPLY_RECOMMENDATION_SCHEMA = {
@@ -161,14 +209,17 @@ function formatPlaytime(minutes: number) {
   return hours < 10 ? hours.toFixed(1) + "h" : Math.round(hours) + "h";
 }
 
-function fieldLabel(field: StorefrontNumericField) {
+function fieldLabel(field: StorefrontRankingField) {
   return {
+    intentFit: "intent fit", tagCoverage: "tag coverage",
     positiveRatio: "review quality", reviewCount: "review confidence", priceCents: "lower price",
     ownersMax: "player reach", ccu: "active players", averageForever: "long-term playtime", releaseYear: "recency",
   }[field];
 }
 
 function metricValue(game: CatalogGame, field: HighlightField) {
+  if (field === "intentFit") return Math.round(Number(game.intentFit ?? 0) * 100) + "% intent fit";
+  if (field === "tagCoverage") return Math.round(Number(game.tagCoverage ?? 0) * 100) + "% tag coverage";
   if (field === "positiveRatio") return formatPercent(game.positiveRatio);
   if (field === "reviewCount") return formatCompact(game.reviewCount) + " reviews";
   if (field === "ownersMax") return formatCompact(game.ownersMax) + " owners";
@@ -194,6 +245,18 @@ function BuyButton({ game, inLibrary, adding, onAdd }: { game: CatalogGame; inLi
 }
 
 type GameViewProps = { game: CatalogGame; highlights: HighlightField[]; inLibrary: boolean; adding: boolean; onAdd: (id: number) => void };
+
+function FeaturedGameCard({ game, editorial, inLibrary, adding, onAdd }: Omit<GameViewProps, "highlights"> & { editorial: FeaturedEditorial }) {
+  return <article className={"store-featured-card" + (inLibrary ? " is-owned" : "")}>
+    <GameArtwork game={game} />
+    <div className="store-featured-copy">
+      <span className="store-featured-badge">{editorial.badge}</span>
+      <div><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
+      <p className="store-featured-reason"><b>Why it fits</b>{editorial.reason}</p>
+      <div className="store-featured-action"><strong>{formatPrice(game.priceCents)}</strong><BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} /></div>
+    </div>
+  </article>;
+}
 
 function GameCard({ game, highlights, inLibrary, adding, onAdd }: GameViewProps) {
   const visible = highlights.length ? highlights : ["positiveRatio", "ccu"] as HighlightField[];
@@ -283,11 +346,40 @@ function normalizeRanking(value: unknown): StorefrontRankingFactor[] {
   const input = isRecord(value) && Array.isArray(value.factors) ? value.factors : [];
   return input.flatMap((factor): StorefrontRankingFactor[] => {
     if (!isRecord(factor)) return [];
-    const field = String(factor.field ?? "") as StorefrontNumericField;
+    const field = String(factor.field ?? "") as StorefrontRankingField;
     const weight = typeof factor.weight === "number" ? Math.min(1, Math.max(0, factor.weight)) : 0;
-    if (!NUMERIC_FIELDS.includes(field) || !weight) return [];
+    if (!RANKING_FIELDS.includes(field) || !weight) return [];
     return [{ field, weight, direction: factor.direction === "lower" ? "lower" : "higher", label: cleanText(factor.label, fieldLabel(field), 40) }];
   }).slice(0, 5);
+}
+
+function normalizedTags(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => cleanText(item, "", 80))
+    .filter(Boolean)
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
+    .slice(0, 12);
+}
+
+function normalizeCuration(input: Record<string, unknown>, recommendation: PendingRecommendation): EditorialCuration {
+  const allowed = new Set(recommendation.results.map((game) => game.id));
+  const orderedAppIds = Array.isArray(input.orderedAppIds) ? input.orderedAppIds.filter((id): id is number => Number.isInteger(id) && Number(id) > 0) : [];
+  const featured = Array.isArray(input.featured) ? input.featured.flatMap((value): FeaturedEditorial[] => {
+    if (!isRecord(value) || !Number.isInteger(value.appId) || Number(value.appId) <= 0) return [];
+    const badge = cleanText(value.badge, "", 40);
+    const reason = cleanText(value.reason, "", 220);
+    return badge && reason ? [{ appId: Number(value.appId), badge, reason }] : [];
+  }) : [];
+  const allIds = [...orderedAppIds, ...featured.map((item) => item.appId)];
+  const invalidIds = [...new Set(allIds.filter((id) => !allowed.has(id)))];
+  if (invalidIds.length) throw new Error("Curation can use only app IDs returned by the original recommendation set.");
+  if (!orderedAppIds.length || new Set(orderedAppIds).size !== orderedAppIds.length) throw new Error("orderedAppIds must contain at least one unique app ID from the recommendation set.");
+  if (new Set(featured.map((item) => item.appId)).size !== featured.length) throw new Error("Each featured app ID may appear only once.");
+  const headline = cleanText(input.headline, "", 90);
+  const summary = cleanText(input.summary, "", 240);
+  if (!headline || !summary) throw new Error("Curation requires a headline and overall summary.");
+  return { headline, summary, featured: featured.slice(0, 6), orderedAppIds: orderedAppIds.slice(0, 100) };
 }
 
 function mostCommon(values: string[], limit = 5) {
@@ -325,6 +417,8 @@ function publicGame(game: CatalogGame) {
     releaseDate: game.releaseDate,
     releaseYear: game.releaseYear,
     rankScore: game.rankScore ?? null,
+    intentFit: game.intentFit ?? null,
+    tagCoverage: game.tagCoverage ?? null,
   };
 }
 
@@ -342,6 +436,8 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(0);
   const [presentation, setPresentation] = useState<SearchPresentation | null>(null);
+  const [appliedRecommendation, setAppliedRecommendation] = useState<PendingRecommendation | null>(null);
+  const [renderRequestVersion, setRenderRequestVersion] = useState(0);
   const [customFacets, setCustomFacets] = useState<CustomFacet[]>([]);
   const [selectedCustomBands, setSelectedCustomBands] = useState<Record<string, string>>({});
   const [library, setLibrary] = useState<Set<number>>(new Set());
@@ -349,11 +445,10 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   const customFacetsRef = useRef<CustomFacet[]>([]);
   const libraryRef = useRef<Set<number>>(new Set());
   const catalogRef = useRef<CatalogPage | null>(null);
-  const privateTasteProfileRef = useRef<PrivateTasteProfile | null>(null);
-  const pendingRecommendationRef = useRef<PendingRecommendation | null>(null);
   const statusChangeRef = useRef(onWebMcpStatusChange);
   const storageLoadedRef = useRef(false);
   const timersRef = useRef<number[]>([]);
+  const renderWaiterRef = useRef<{ recommendationId: string; resolve: (receipt: ApplyReceipt) => void } | null>(null);
 
   useEffect(() => { catalogRef.current = catalog; }, [catalog]);
   useEffect(() => { statusChangeRef.current = onWebMcpStatusChange; }, [onWebMcpStatusChange]);
@@ -437,15 +532,59 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
 
   const clearSearch = useCallback(() => {
     setSearch(""); setPriceBand("All prices"); setGenre(""); setTag(""); setMinPositiveRatio(undefined); setMinReviewCount(undefined);
-    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setSelectedCustomBands({});
+    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setSelectedCustomBands({});
+    storefrontRecommendations.clear();
     try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
   }, []);
-  const clearSearchRef = useRef(clearSearch);
-  useEffect(() => { clearSearchRef.current = clearSearch; }, [clearSearch]);
+
+  const applyRecommendation = useCallback((pending: PendingRecommendation) => new Promise<ApplyReceipt>((resolve) => {
+    const editorial = pending.curation;
+    pending.presentation = {
+      ...pending.presentation,
+      title: editorial?.headline ?? "Recommendations shaped around your request",
+      explanation: editorial?.summary ?? "Public catalog results ranked for the stated intent without reading personal taste data.",
+      editorial,
+    };
+    renderWaiterRef.current = { recommendationId: pending.id, resolve };
+    setSearch(pending.search); setPriceBand(pending.priceBand); setGenre(pending.genre); setTag(pending.tag);
+    setMinPositiveRatio(pending.minPositiveRatio); setMinReviewCount(pending.minReviewCount);
+    setSort(pending.sort); setDirection(pending.direction); setPresentation(pending.presentation); setAppliedRecommendation(pending); setPage(0);
+    setRenderRequestVersion((version) => version + 1);
+  }), []);
+
+  const saveFacet = useCallback((facets: CustomFacet[]) => {
+    customFacetsRef.current = facets;
+    setCustomFacets(facets);
+  }, []);
+
+  const removeFacet = useCallback((facetId: string) => {
+    setCustomFacets((items) => items.filter((item) => item.id !== facetId));
+    setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facetId]; return copy; });
+  }, []);
 
   useEffect(() => {
+    const runtime: StorefrontRuntime = {
+      catalog: catalogRef,
+      customFacets: customFacetsRef,
+      library: libraryRef,
+      applyRecommendation,
+      saveFacet,
+      removeFacet,
+      clearSearch,
+    };
+    storefrontRuntime = runtime;
     const context = document.modelContext ?? navigator.modelContext;
-    if (!context) { queueMicrotask(() => statusChangeRef.current("preview")); return; }
+    if (!context) {
+      queueMicrotask(() => statusChangeRef.current("preview"));
+      return () => { if (storefrontRuntime === runtime) storefrontRuntime = null; };
+    }
+    const existingRegistration = storefrontRegistrations.get(context);
+    if (existingRegistration) {
+      void existingRegistration
+        .then(() => statusChangeRef.current("connected"))
+        .catch(() => statusChangeRef.current("preview"));
+      return () => { if (storefrontRuntime === runtime) storefrontRuntime = null; };
+    }
     const controller = new AbortController();
     const tools = [
       {
@@ -454,15 +593,15 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: () => {
-          const current = catalogRef.current;
+          const current = storefrontRuntime?.catalog.current;
           return {
             content: [{ type: "text", text: "Described the storefront's public discovery and local personalization capabilities without reading personal library data." }],
             structuredContent: {
               schemaVersion: "steam-desk.storefront/v2",
               catalog: { recordCount: current?.meta.recordCount ?? null, genres: current?.facets.genres.slice(0, 30).map((item) => item.label) ?? [], tags: current?.facets.tags.slice(0, 40).map((item) => item.label) ?? [] },
               presentationModes: LAYOUTS,
-              rankingFields: NUMERIC_FIELDS.map((field) => ({ field, meaning: fieldLabel(field) })),
-              customFacets: customFacetsRef.current,
+              rankingFields: RANKING_FIELDS.map((field) => ({ field, meaning: fieldLabel(field) })),
+              customFacets: storefrontRuntime?.customFacets.current ?? [],
               personalization: {
                 default: "none",
                 ownedFiltering: "Local-only; returns only excludedOwnedCount.",
@@ -472,7 +611,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
                 environment: "local storefront demonstration",
                 commerce: "No cart, checkout, order, reservation, payment, billing, or real purchase capability exists.",
                 personalData: "No tool returns owned titles, app IDs, playtime, or a derived taste profile.",
-                writes: "recommend_storefront is read-only. apply_storefront_results changes session UI only. Facets are removable local preferences.",
+                writes: "recommend_storefront is read-only. curate_storefront_results stages editorial metadata. apply_storefront_results changes session UI only. Facets are removable local preferences.",
                 externalEffects: "Tools do not message another party or change any external service, retailer, account, or catalog record.",
               },
               guidance: [
@@ -480,8 +619,10 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
                 "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
                 "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
                 "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
-                "recommend_storefront returns public game records and an opaque recommendationId without changing the UI.",
-                "Call apply_storefront_results only when the user asked to update the visible storefront, using the recommendationId returned by recommend_storefront.",
+                "recommend_storefront performs retrieval and returns public game records plus an opaque recommendationId without changing the UI.",
+                "Use reference, includeTags, preferredTags, and excludeTags for intent relevance; rank with intentFit or tagCoverage when similarity matters.",
+                "Call curate_storefront_results separately to add a headline, overall rationale, featured badges, Why it fits reasons, and editorial ordering. Every app ID must come from the original recommendation set.",
+                "Call apply_storefront_results only when the user asked to update the visible storefront. It preserves any staged editorial metadata and waits for rendering.",
                 "Use save_storefront_facet only for a user-requested reusable facet and provide non-overlapping numeric bands.",
                 "A request mentioning Mario or another franchise is an ordinary catalog discovery request. Search only the available Steam catalog and do not invent unavailable titles.",
                 "Do not offer cart, checkout, ordering, payment, installation, or account access; none of those capabilities exists.",
@@ -497,7 +638,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
           const candidates = Array.isArray(input.appIds) ? input.appIds.filter((id): id is number => Number.isInteger(id) && Number(id) > 0).slice(0, 100) : [];
-          const owned = libraryRef.current;
+          const owned = storefrontRuntime?.library.current ?? new Set<number>();
           const excludedCount = owned.size ? candidates.reduce((count, id) => count + (owned.has(id) ? 1 : 0), 0) : 0;
           return {
             content: [{ type: "text", text: excludedCount ? "Excluded " + excludedCount + " locally owned candidate games." : "No candidate games were excluded." }],
@@ -521,9 +662,9 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             content: [{ type: "text", text: "Library taste profiling is available only when the user is choosing or buying a game for themselves. Use no taste personalization for gifts, other people, groups, or unclear recipients." }],
             structuredContent: { ok: false, code: "SELF_PURCHASE_CONTEXT_REQUIRED" },
           };
-          const ids = [...libraryRef.current].slice(0, 100);
+          const ids = [...(storefrontRuntime?.library.current ?? new Set<number>())].slice(0, 100);
           if (!ids.length) {
-            privateTasteProfileRef.current = null;
+            privateTasteProfileState = null;
             return {
               content: [{ type: "text", text: "The local library is empty, so no taste profile was read or created." }],
               structuredContent: { schemaVersion: "steam-desk.private-taste-profile/v1", ok: true, ready: false, reason: "empty_library" },
@@ -533,20 +674,20 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             const libraryCatalog = await loadCatalogPage({
               search: "", ownerBand: "All owner ranges", priceBand: "All prices", sort: "title", direction: "asc", page: 0, pageSize: 100, appIds: ids,
             }, controller.signal);
-            privateTasteProfileRef.current = privateTasteProfile(libraryCatalog.games);
+            privateTasteProfileState = privateTasteProfile(libraryCatalog.games);
             return {
               content: [{ type: "text", text: "Prepared private local-library personalization. No library or profile data was disclosed." }],
               structuredContent: { schemaVersion: "steam-desk.private-taste-profile/v1", ok: true, ready: true },
             };
           } catch (error) {
-            privateTasteProfileRef.current = null;
+            privateTasteProfileState = null;
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Private taste personalization could not be prepared." }], structuredContent: { ok: false } };
           }
         },
       },
       {
         name: "recommend_storefront",
-        description: "Read the public Steam catalog and return public game recommendations without changing the storefront UI. Personalization defaults to none. Set personalization to local_library only after get_taste_profile succeeds following explicit user opt-in and only when recipientContext is self. Use none for gifts, other people, groups, or an unclear recipient. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, or taste data are disclosed.",
+        description: "Retrieve public Steam catalog recommendations without editorializing or changing the storefront UI. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Personalization defaults to none. Set personalization to local_library only after get_taste_profile succeeds following explicit user opt-in and only when recipientContext is self. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -557,7 +698,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             content: [{ type: "text", text: "Local-library taste personalization is limited to games the user is choosing or buying for themselves. Use personalization none for gifts, other people, groups, or an unclear recipient." }],
             structuredContent: { ok: false, code: "SELF_PURCHASE_CONTEXT_REQUIRED", recipientContext },
           };
-          const profile = personalization === "local_library" ? privateTasteProfileRef.current : null;
+          const profile = personalization === "local_library" ? privateTasteProfileState : null;
           if (personalization === "local_library" && !profile) return {
             isError: true,
             content: [{ type: "text", text: "Local-library personalization is not ready. Ask the user to opt in, then call get_taste_profile first." }],
@@ -567,8 +708,20 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             const rawPresentation = isRecord(input.presentation) ? input.presentation : {};
             const mode = LAYOUTS.includes(rawPresentation.mode as LayoutMode) ? rawPresentation.mode as LayoutMode : "ranking";
             const highlights = Array.isArray(rawPresentation.highlightFields) ? rawPresentation.highlightFields.filter((field): field is HighlightField => HIGHLIGHT_FIELDS.includes(field as HighlightField)).slice(0, 5) : [];
+            const reference = cleanText(input.reference, "", 120);
+            const includeTags = normalizedTags(input.includeTags);
+            const preferredTags = [...normalizedTags(input.preferredTags), ...(profile?.tags ?? [])]
+              .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
+              .slice(0, 12);
+            const excludeTags = normalizedTags(input.excludeTags);
+            const hasIntent = Boolean(reference || includeTags.length || preferredTags.length || excludeTags.length);
             let nextRanking = normalizeRanking(input.ranking);
-            if (mode === "ranking" && !nextRanking.length) nextRanking = [
+            if (mode === "ranking" && !nextRanking.length) nextRanking = hasIntent ? [
+              { field: "intentFit", weight: .55, direction: "higher", label: "intent fit" },
+              { field: "tagCoverage", weight: .2, direction: "higher", label: "tag coverage" },
+              { field: "positiveRatio", weight: .15, direction: "higher", label: "review quality" },
+              { field: "reviewCount", weight: .1, direction: "higher", label: "review confidence" },
+            ] : [
               { field: "positiveRatio", weight: .5, direction: "higher", label: "review quality" },
               { field: "reviewCount", weight: .2, direction: "higher", label: "review confidence" },
               { field: "ownersMax", weight: .2, direction: "higher", label: "player reach" },
@@ -583,25 +736,28 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             const sortKey = SORTS.includes(input.sort as SortKey) ? input.sort as SortKey : nextRanking.length ? "positiveRatio" : "ownersMax";
             const sortDirection = input.direction === "asc" ? "asc" : "desc";
             const excludeOwned = input.excludeOwnedLocally !== false;
-            const ownedIds = excludeOwned && libraryRef.current.size ? [...libraryRef.current].slice(0, 200) : [];
+            const currentLibrary = storefrontRuntime?.library.current ?? new Set<number>();
+            const ownedIds = excludeOwned && currentLibrary.size ? [...currentLibrary].slice(0, 200) : [];
             const options = {
               search: query, ownerBand: "All owner ranges", priceBand: price, sort: sortKey, direction: sortDirection, page: 0, pageSize: PAGE_SIZE,
               genre, tag, minPositiveRatio: minRatio, minReviewCount: minReviews, ranking: nextRanking,
+              reference, includeTags, preferredTags, excludeTags,
             };
             const recommendationRequest = loadCatalogPage({ ...options, excludeAppIds: ownedIds }, controller.signal);
             const inclusiveCountRequest = ownedIds.length ? loadCatalogPage({ ...options, pageSize: 1 }, controller.signal) : null;
             const [result, inclusive] = await Promise.all([recommendationRequest, inclusiveCountRequest]);
             const excludedOwnedCount = inclusive ? Math.max(0, inclusive.query.total - result.query.total) : 0;
             const nextPresentation: SearchPresentation = {
-              title: cleanText(input.title, "Recommendations shaped around your request", 90),
-              explanation: cleanText(input.explanation, personalization === "local_library" ? "Public catalog results were ranked with a private profile computed inside this page." : "Public catalog results were ranked without reading personal taste data.", 180),
+              title: "Recommendations shaped around your request",
+              explanation: personalization === "local_library" ? "Public catalog results ranked with a private profile computed inside this page." : "Public catalog results ranked for the stated intent without reading personal taste data.",
               mode, highlights, ranking: nextRanking, excludeOwned,
             };
             const recommendationId = "store-rec-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-            pendingRecommendationRef.current = {
+            const recommendation: PendingRecommendation = {
               id: recommendationId, search: query, priceBand: price, genre, tag, minPositiveRatio: minRatio, minReviewCount: minReviews,
-              sort: sortKey, direction: sortDirection, presentation: nextPresentation,
+              sort: sortKey, direction: sortDirection, presentation: nextPresentation, results: result.games, resultTotal: result.query.total,
             };
+            storefrontRecommendations.set(recommendationId, recommendation);
             return {
               content: [{ type: "text", text: "Found " + result.games.length + " public game recommendations without changing the storefront." }],
               structuredContent: {
@@ -610,6 +766,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
                 recommendationId,
                 personalization,
                 recipientContext,
+                intent: { reference, includeTags, preferredTags, excludeTags },
                 results: result.games.map(publicGame),
                 excludedOwnedCount,
               },
@@ -620,24 +777,64 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         },
       },
       {
-        name: "apply_storefront_results",
-        description: "Optionally apply one result set from recommend_storefront to the visible storefront session. This changes only local search, filters, ranking, and layout; it cannot purchase, install, access an account, or write to an external service.",
-        inputSchema: APPLY_RECOMMENDATION_SCHEMA,
+        name: "curate_storefront_results",
+        description: "Stage editorial curation for one recommend_storefront result set without retrieving new games or changing the visible UI. Adds a headline, overall rationale, featured badges, per-game Why it fits reasons, and ordering. Every app ID is validated against the original recommendation set.",
+        inputSchema: CURATE_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
           const recommendationId = cleanText(input.recommendationId, "", 80);
-          const pending = pendingRecommendationRef.current;
-          if (!pending || pending.id !== recommendationId) return {
+          const recommendation = storefrontRecommendations.get(recommendationId);
+          if (!recommendation) return {
             isError: true,
             content: [{ type: "text", text: "That recommendation is unavailable or stale. Call recommend_storefront again." }],
             structuredContent: { ok: false, code: "RECOMMENDATION_NOT_FOUND" },
           };
-          setSearch(pending.search); setPriceBand(pending.priceBand); setGenre(pending.genre); setTag(pending.tag);
-          setMinPositiveRatio(pending.minPositiveRatio); setMinReviewCount(pending.minReviewCount);
-          setSort(pending.sort); setDirection(pending.direction); setPresentation(pending.presentation); setPage(0);
+          try {
+            const curation = normalizeCuration(input, recommendation);
+            recommendation.curation = curation;
+            return {
+              content: [{ type: "text", text: "Curated “" + curation.headline + "” using only games from the original recommendation set." }],
+              structuredContent: {
+                schemaVersion: "steam-desk.storefront-curation/v1",
+                ok: true,
+                recommendationId,
+                headline: curation.headline,
+                featuredAppIds: curation.featured.map((item) => item.appId),
+                orderedAppIds: curation.orderedAppIds,
+              },
+            };
+          } catch (error) {
+            return {
+              isError: true,
+              content: [{ type: "text", text: error instanceof Error ? error.message : "The recommendation could not be curated." }],
+              structuredContent: { ok: false, code: "INVALID_CURATION" },
+            };
+          }
+        },
+      },
+      {
+        name: "apply_storefront_results",
+        description: "Apply one staged recommendation to the visible storefront session, preserving its editorial summary, featured badges, Why it fits reasons, and ordering. Featured games render before the algorithmic list. The tool waits for the UI render to commit before returning. This cannot purchase, install, access an account, or write to an external service.",
+        inputSchema: APPLY_RECOMMENDATION_SCHEMA,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          const recommendationId = cleanText(input.recommendationId, "", 80);
+          const pending = storefrontRecommendations.get(recommendationId);
+          if (!pending) return {
+            isError: true,
+            content: [{ type: "text", text: "That recommendation is unavailable or stale. Call recommend_storefront again." }],
+            structuredContent: { ok: false, code: "RECOMMENDATION_NOT_FOUND" },
+          };
+          const currentRuntime = storefrontRuntime;
+          if (!currentRuntime) return {
+            isError: true,
+            content: [{ type: "text", text: "The storefront page is not currently available to render this recommendation." }],
+            structuredContent: { ok: false, code: "STOREFRONT_NOT_MOUNTED" },
+          };
+          const receipt = await currentRuntime.applyRecommendation(pending);
           return {
             content: [{ type: "text", text: "Applied “" + pending.presentation.title + "” to the visible " + pending.presentation.mode + " storefront layout." }],
-            structuredContent: { schemaVersion: "steam-desk.storefront-apply-receipt/v1", ok: true, recommendationId, persistence: "session until search is cleared" },
+            structuredContent: { schemaVersion: "steam-desk.storefront-apply-receipt/v2", ok: true, recommendationId, persistence: "session until search is cleared", ...receipt },
           };
         },
       },
@@ -649,8 +846,10 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         execute: (input: Record<string, unknown>) => {
           try {
             const facet = normalizeCustomFacet(input);
-            const next = [facet, ...customFacetsRef.current].slice(0, 8);
-            customFacetsRef.current = next; setCustomFacets(next);
+            const currentRuntime = storefrontRuntime;
+            if (!currentRuntime) throw new Error("The storefront page is not currently available.");
+            const next = [facet, ...currentRuntime.customFacets.current].slice(0, 8);
+            currentRuntime.saveFacet(next);
             return { content: [{ type: "text", text: "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands." }], structuredContent: { schemaVersion: "steam-desk.storefront-facet-receipt/v1", ok: true, saved: true, storage: "local", facet } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The custom facet could not be saved." }], structuredContent: { ok: false } };
@@ -664,11 +863,10 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
           const facetId = cleanText(input.facetId, "", 80);
-          const existing = customFacetsRef.current.find((facet) => facet.id === facetId);
+          const currentRuntime = storefrontRuntime;
+          const existing = currentRuntime?.customFacets.current.find((facet) => facet.id === facetId);
           if (!existing) return { isError: true, content: [{ type: "text", text: "Saved facet not found." }] };
-          const next = customFacetsRef.current.filter((facet) => facet.id !== facetId);
-          customFacetsRef.current = next; setCustomFacets(next);
-          setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facetId]; return copy; });
+          currentRuntime?.removeFacet(facetId);
           return { content: [{ type: "text", text: "Removed the “" + existing.label + "” facet." }], structuredContent: { ok: true, removed: facetId } };
         },
       },
@@ -678,16 +876,18 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: () => {
-          clearSearchRef.current();
+          storefrontRuntime?.clearSearch();
           return { content: [{ type: "text", text: "Cleared the adaptive search and restored the conventional storefront." }], structuredContent: { ok: true, layout: "grid", customFacetsPreserved: true, libraryPreserved: true } };
         },
       },
     ];
-    void Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal })))
-      .then(() => { if (!controller.signal.aborted) statusChangeRef.current("connected"); })
-      .catch(() => { if (!controller.signal.aborted) statusChangeRef.current("preview"); });
-    return () => controller.abort();
-  }, []);
+    const registration = Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal }))).then(() => undefined);
+    storefrontRegistrations.set(context, registration);
+    void registration
+      .then(() => statusChangeRef.current("connected"))
+      .catch(() => statusChangeRef.current("preview"));
+    return () => { if (storefrontRuntime === runtime) storefrontRuntime = null; };
+  }, [applyRecommendation, clearSearch, removeFacet, saveFacet]);
 
   const addToLibrary = useCallback((id: number) => {
     if (library.has(id) || addingId !== null) return;
@@ -696,17 +896,58 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
     timersRef.current.push(timer);
   }, [addingId, library]);
 
-  const updateTextSearch = (value: string) => { setSearch(value); setPage(0); if (!value) setPresentation(null); };
-  const loading = resolvedKey !== requestKey;
-  const games = catalog?.games ?? [];
-  const total = catalog?.query.total ?? 0;
+  const updateTextSearch = (value: string) => { setSearch(value); setAppliedRecommendation(null); setPage(0); if (!value) setPresentation(null); };
+  const loading = appliedRecommendation ? false : resolvedKey !== requestKey;
+  const games = useMemo(() => {
+    const source = appliedRecommendation?.results ?? catalog?.games ?? [];
+    const orderedIds = appliedRecommendation?.curation?.orderedAppIds ?? source.map((game) => game.id);
+    const byId = new Map(source.map((game) => [game.id, game]));
+    const ordered = orderedIds.flatMap((id) => {
+      const game = byId.get(id);
+      if (!game) return [];
+      byId.delete(id);
+      return [game];
+    });
+    return [...ordered, ...byId.values()];
+  }, [appliedRecommendation, catalog]);
+  const editorial = presentation?.editorial;
+  const featuredById = useMemo(() => new Map((editorial?.featured ?? []).map((item) => [item.appId, item])), [editorial]);
+  const featuredGames = useMemo(() => games.flatMap((game) => {
+    const item = featuredById.get(game.id);
+    return item ? [{ game, editorial: item }] : [];
+  }), [featuredById, games]);
+  const algorithmicGames = useMemo(() => games.filter((game) => !featuredById.has(game.id)), [featuredById, games]);
+  const visibleAppIds = useMemo(() => [...featuredGames.map((item) => item.game.id), ...algorithmicGames.map((game) => game.id)], [algorithmicGames, featuredGames]);
+  const total = appliedRecommendation ? games.length : catalog?.query.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const visiblePage = Math.min(page, totalPages - 1);
+  const visiblePage = appliedRecommendation ? 0 : Math.min(page, totalPages - 1);
   const activeMode = presentation?.mode ?? "grid";
   const highlights = presentation?.highlights ?? [];
   const resultStart = total ? visiblePage * PAGE_SIZE + 1 : 0;
   const resultEnd = Math.min((visiblePage + 1) * PAGE_SIZE, total);
   const activeFilterCount = [search, priceBand !== "All prices", genre, tag, minPositiveRatio !== undefined, minReviewCount !== undefined, ...Object.values(selectedCustomBands)].filter(Boolean).length;
+
+  useEffect(() => {
+    const waiter = renderWaiterRef.current;
+    if (!waiter || waiter.recommendationId !== appliedRecommendation?.id) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (renderWaiterRef.current !== waiter) return;
+        renderWaiterRef.current = null;
+        waiter.resolve({
+          rendered: true,
+          featuredAppIds: featuredGames.map((item) => item.game.id),
+          visibleAppIds,
+          summaryVisible: Boolean(editorial?.summary),
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [appliedRecommendation?.id, editorial?.summary, featuredGames, renderRequestVersion, visibleAppIds]);
 
   return <><DemoSwitcher active="store" /><main className="storefront-shell">
     <section className="storefront" aria-labelledby="storefront-title">
@@ -746,7 +987,13 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
 
         <section className="storefront-results" aria-busy={loading} aria-live="polite">
           <div className="storefront-results-bar"><div><strong>{loading ? "Updating…" : total.toLocaleString() + " games"}</strong><span>{presentation ? activeMode + " view selected for this search" : "Conventional store results"}</span></div><div><span>{library.size} in library</span><b>{activeMode}</b></div></div>
-          {loading ? <StorefrontResultsSkeleton mode={activeMode} /> : catalogError ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !games.length ? <div className="storefront-empty"><strong>No games match this search</strong><p>Clear a filter or try broader terms.</p><button type="button" onClick={clearSearch}>Clear search</button></div> : activeMode === "table" ? <GameTable games={games} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{games.map((game, index) => <RankingItem key={game.id} game={game} rank={visiblePage * PAGE_SIZE + index + 1} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{games.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{games.map((game) => <GameCard key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>}
+          {loading ? <StorefrontResultsSkeleton mode={activeMode} /> : catalogError && !appliedRecommendation ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !games.length ? <div className="storefront-empty"><strong>No games match this search</strong><p>Clear a filter or try broader terms.</p><button type="button" onClick={clearSearch}>Clear search</button></div> : <>
+            {featuredGames.length ? <section className="store-featured" aria-labelledby="store-featured-title">
+              <div className="store-featured-heading"><span>Editor’s picks</span><h3 id="store-featured-title">Featured first</h3></div>
+              <div className="store-featured-grid">{featuredGames.map(({ game, editorial: item }) => <FeaturedGameCard key={game.id} game={game} editorial={item} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>
+            </section> : null}
+            {algorithmicGames.length ? activeMode === "table" ? <GameTable games={algorithmicGames} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{algorithmicGames.map((game, index) => <RankingItem key={game.id} game={game} rank={featuredGames.length + visiblePage * PAGE_SIZE + index + 1} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{algorithmicGames.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{algorithmicGames.map((game) => <GameCard key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : null}
+          </>}
           <footer className="store-pagination"><span>{loading ? "Updating results…" : "Showing " + resultStart.toLocaleString() + "–" + resultEnd.toLocaleString() + " of " + total.toLocaleString()}</span><div><button type="button" disabled={loading || visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={loading || visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer>
         </section>
       </div>

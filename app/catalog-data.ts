@@ -1,5 +1,7 @@
 export type StorefrontNumericField = "positiveRatio" | "reviewCount" | "priceCents" | "ownersMax" | "ccu" | "averageForever" | "releaseYear";
-export type StorefrontRankingFactor = { field: StorefrontNumericField; weight: number; direction: "higher" | "lower"; label?: string };
+export type StorefrontIntentField = "intentFit" | "tagCoverage";
+export type StorefrontRankingField = StorefrontNumericField | StorefrontIntentField;
+export type StorefrontRankingFactor = { field: StorefrontRankingField; weight: number; direction: "higher" | "lower"; label?: string };
 export type StorefrontNumericFilter = { field: StorefrontNumericField; min?: number; max?: number };
 
 export type CatalogGame = {
@@ -26,6 +28,8 @@ export type CatalogGame = {
   releaseDate: string | null;
   releaseYear: number | null;
   rankScore?: number | null;
+  intentFit?: number | null;
+  tagCoverage?: number | null;
   genres: string[];
   tags: string[];
 };
@@ -58,6 +62,10 @@ export type CatalogPageOptions = {
   minReviewCount?: number;
   numericFilters?: StorefrontNumericFilter[];
   ranking?: StorefrontRankingFactor[];
+  reference?: string;
+  includeTags?: string[];
+  preferredTags?: string[];
+  excludeTags?: string[];
   appIds?: number[];
   excludeAppIds?: number[];
 };
@@ -113,6 +121,10 @@ export async function loadCatalogPage(options: CatalogPageOptions, signal?: Abor
   if (options.minReviewCount !== undefined) params.set("minReviewCount", String(options.minReviewCount));
   if (options.numericFilters?.length) params.set("numericFilters", JSON.stringify(options.numericFilters));
   if (options.ranking?.length) params.set("ranking", JSON.stringify(options.ranking));
+  if (options.reference) params.set("reference", options.reference);
+  if (options.includeTags?.length) params.set("includeTags", JSON.stringify(options.includeTags));
+  if (options.preferredTags?.length) params.set("preferredTags", JSON.stringify(options.preferredTags));
+  if (options.excludeTags?.length) params.set("excludeTags", JSON.stringify(options.excludeTags));
   if (options.appIds?.length) params.set("appIds", JSON.stringify(options.appIds));
   if (options.excludeAppIds?.length) params.set("excludeAppIds", JSON.stringify(options.excludeAppIds));
   const response = await fetch(`/api/catalog?${params}`, { signal, cache: "no-store" });

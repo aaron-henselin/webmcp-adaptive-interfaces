@@ -351,7 +351,7 @@ function normalizeOperations(value: unknown): WorkspaceOperation[] {
   });
 }
 
-export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
+export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -633,6 +633,7 @@ export default function WorkspacePage({ onWebMcpStatusChange }: { onWebMcpStatus
         <AudienceOnboarding
           stage={editingAudience ? "audience_required" : workspace.onboarding.stage}
           audience={workspace.audience}
+          connecting={webMcpStatus === "checking"}
           canCancel={audienceReady}
           onCancel={() => setEditingAudience(false)}
         />

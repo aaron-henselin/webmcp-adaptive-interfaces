@@ -7,6 +7,7 @@ import "./audience-onboarding.css";
 type AudienceOnboardingProps = {
   stage: OnboardingStage;
   audience: AudienceContext;
+  connecting: boolean;
   canCancel: boolean;
   onCancel?: () => void;
 };
@@ -18,7 +19,7 @@ function timeGreeting() {
   return "Good evening";
 }
 
-export default function AudienceOnboarding({ stage, audience, canCancel, onCancel }: AudienceOnboardingProps) {
+export default function AudienceOnboarding({ stage, audience, connecting, canCancel, onCancel }: AudienceOnboardingProps) {
   const [copied, setCopied] = useState(false);
   const audienceReady = Boolean(audience.firstName && audience.jobRole && audience.company);
   const proposalRequired = stage === "proposal_required" && audienceReady;
@@ -33,10 +34,17 @@ export default function AudienceOnboarding({ stage, audience, canCancel, onCance
 
   if (stage === "audience_required" && !audienceReady) {
     return <div className="audience-onboarding audience-invitation">
-      <section className="audience-invitation-copy" aria-labelledby="audience-brief-title">
+      {connecting ? <section className="audience-connecting" id="audience-brief-title" role="status" aria-live="polite">
+        <div className="audience-connection-signal" aria-hidden="true">
+          <span className="audience-connection-node node-browser" />
+          <span className="audience-connection-path"><i /></span>
+          <span className="audience-connection-node node-agent" />
+        </div>
+        <p>Connecting…</p>
+      </section> : <section className="audience-invitation-copy" aria-labelledby="audience-brief-title">
         <h3 id="audience-brief-title">Make this site yours.</h3>
         <p>Say <strong>“onboard me”</strong> to get started.</p>
-      </section>
+      </section>}
     </div>;
   }
 

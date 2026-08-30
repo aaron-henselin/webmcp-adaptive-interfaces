@@ -26,6 +26,47 @@
   background: transparent;
 }
 
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-inner {
+  border-color: rgba(170, 218, 237, .22);
+  background: linear-gradient(135deg, rgba(27, 48, 60, .7), rgba(20, 36, 46, .48));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    0 16px 38px rgba(4, 14, 20, .22);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-brand {
+  border-color: rgba(170, 218, 237, .16);
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-brand span {
+  color: #eef8fb;
+  text-shadow: 0 1px 14px rgba(110, 204, 239, .18);
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-options a {
+  color: #b9cbd3;
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-options a:hover {
+  color: #f3fbfd;
+  border-color: rgba(147, 211, 236, .24);
+  background: rgba(183, 225, 241, .08);
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-switcher-options a.active {
+  color: #f7fcfe;
+  border-color: rgba(139, 213, 242, .32);
+  background: rgba(10, 24, 32, .52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-number,
+.builder-demo-host:has(> .builder-site-shell.is-onboarding) > .demo-switcher .demo-arrow {
+  color: #83cbe7;
+}
+
 .builder-desk {
   width: 100%;
   border: 0;

@@ -81,6 +81,8 @@
   line-height: .98;
 }
 .audience-invitation-copy p { margin: 24px 0 0; color: #b9cad3; font-size: clamp(15px, 2vw, 20px); line-height: 1.5; }
+.audience-resume-hint { margin-top: 14px; display: block; color: #8fa6b2; font-size: 11px; line-height: 1.45; }
+.audience-resume-hint b { color: #c8e7f3; font-weight: 620; }
 .audience-invitation-copy strong {
   position: relative;
   isolation: isolate;
@@ -318,7 +320,6 @@
 .audience-privacy span { color: #8cc8e4; }
 .audience-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
 .audience-form-actions button { min-height: 42px; padding: 0 15px; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 10px; font-weight: 620; line-height: 1; }
-.audience-cancel { border: 1px solid rgba(210, 224, 231, .42); color: #d2e0e7; background: rgba(255, 255, 255, .04); }
 .audience-continue { display: inline-flex; align-items: center; gap: 22px; border: 1px solid white; color: #15242e; background: white; }
 .audience-continue:hover { border-color: #8cc8e4; background: #dff3fc; }
 .audience-waiting { min-height: 42px; padding: 0 14px; display: inline-flex; align-items: center; border: 1px solid rgba(140, 200, 228, .34); border-radius: 8px; color: #cbe5f0; background: rgba(61, 157, 204, .1); font-size: 9px; font-weight: 620; }

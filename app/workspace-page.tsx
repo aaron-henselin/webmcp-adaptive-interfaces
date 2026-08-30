@@ -22,7 +22,7 @@ import AudienceOnboarding from "./audience-onboarding";
 import { CatalogTableSkeleton, ReportSkeleton } from "./loading-skeletons";
 import "./workspace.css";
 import {
-  HTML_BINDINGS, MAX_HTML_LENGTH, SPANS, VALUE_FORMATS, addReport, applyOperations, findBlock, loadWorkspace, normalizeBuilderAnalyticsBinding, normalizePresentation,
+  HTML_BINDINGS, MAX_HTML_LENGTH, SPANS, VALUE_FORMATS, addReport, applyOperations, emptyWorkspace, findBlock, loadWorkspace, normalizeBuilderAnalyticsBinding, normalizePresentation,
   renderHtmlWidget, reportBlocks, saveWorkspace, validateBindings, workspaceOutline,
   type BlockSpan, type BuilderAnalyticsBinding, type HtmlBlock, type LeafBlock, type ReportBlock, type TabsBlock,
   type ValueFormat, type Workspace, type WorkspaceBlock, type WorkspaceOperation,
@@ -368,7 +368,7 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({});
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
-  const [editingAudience, setEditingAudience] = useState(false);
+  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
   const [engagementFilters, setEngagementFilters] = useState<EngagementSourceFilters>(DEFAULT_ENGAGEMENT_FILTERS);
   const workspaceRef = useRef<Workspace | null>(null);
   const engagementFiltersRef = useRef(engagementFilters);
@@ -394,6 +394,15 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
       document.removeEventListener("keydown", closeOnKeyDown);
     };
   }, [showWidgetPrompts]);
+
+  useEffect(() => {
+    if (!resetConfirmationOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setResetConfirmationOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [resetConfirmationOpen]);
 
   const commitWorkspace = useCallback((next: Workspace, remember = true) => {
     if (remember && workspaceRef.current) { undoRef.current = structuredClone(workspaceRef.current); setCanUndo(true); }
@@ -493,7 +502,6 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
         }
         const next: Workspace = { ...current, audience: { firstName, jobRole, company: { id: company.id, name: company.name } }, onboarding: { stage: "proposal_required", proposal: null } };
         commitWorkspace(next);
-        setEditingAudience(false);
         const corrected = result.resolution.status === "corrected" && companyQuery.localeCompare(company.name, undefined, { sensitivity: "accent" }) !== 0;
         return {
           content: [{ type: "text", text: `Saved the audience for ${firstName}, ${jobRole} at ${company.name}.${corrected ? ` Resolved “${companyQuery}” to the catalog company “${company.name}”.` : ""} Before requesting composition, propose what page would be most useful, explain the recommended sections and primary action, and wait for the user's approval or revisions.` }],
@@ -549,7 +557,6 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
         const proposal = { summary, sections, primaryAction };
         const next: Workspace = { ...current, onboarding: { stage: "composition_ready", proposal } };
         commitWorkspace(next);
-        setEditingAudience(false);
         return {
           content: [{ type: "text", text: `${current.audience.firstName} approved the proposed page. Composition is unlocked. Build the approved sections now with compose_page and create_report; do not ask for the audience again.` }],
           structuredContent: {
@@ -574,13 +581,26 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
     catch { /* Invalid manual moves leave the current layout unchanged. */ }
   }, [commitWorkspace, editMode]);
 
-  const audienceReady = Boolean(workspace?.audience.firstName && workspace?.audience.jobRole && workspace?.audience.company);
   const compositionReady = workspace?.onboarding.stage === "composition_ready";
-  const onboardingActive = Boolean(workspace && (!compositionReady || editingAudience));
-  const studioActive = Boolean(workspace && compositionReady && !editingAudience);
+  const onboardingActive = Boolean(workspace && !compositionReady);
+  const studioActive = Boolean(workspace && compositionReady);
   const setPageEditing = (editing: boolean) => {
     setEditMode(editing);
     if (!editing) { setShowWidgetPrompts(false); setDraggedId(null); }
+  };
+  const resetDemo = () => {
+    const next = emptyWorkspace();
+    window.localStorage.clear();
+    workspaceRef.current = next;
+    undoRef.current = null;
+    setCanUndo(false);
+    setShowWidgetPrompts(false);
+    setEditMode(false);
+    setActiveTabs({});
+    setDraggedId(null);
+    setEngagementFilters(DEFAULT_ENGAGEMENT_FILTERS);
+    setResetConfirmationOpen(false);
+    setWorkspace(next);
   };
 
   const removeBlock = (id: string) => applyUiOperations([{ op: "remove", target: id }]);
@@ -614,7 +634,7 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
     <div className="workspace-actions">
       {editMode ? <>
         <span className="edit-mode-status"><i aria-hidden="true" /> Editing</span>
-        <button type="button" onClick={() => { setShowWidgetPrompts(false); setEditingAudience(true); }}>Edit audience</button>
+        <button type="button" className="reset-demo" onClick={() => setResetConfirmationOpen(true)}>Reset demo</button>
         <button type="button" disabled={!canUndo} onClick={undoWorkspace}>Undo</button>
         <button type="button" disabled={!workspace?.blocks.length} onClick={() => applyUiOperations([{ op: "reset" }])}>Clear page</button>
       </> : null}
@@ -629,15 +649,13 @@ export default function WorkspacePage({ webMcpStatus, onWebMcpStatusChange }: { 
     </div>
     {showWidgetPrompts ? <section id="widget-prompt-guide" className="prompt-guide catalog-suggestion-menu widget-prompt-overlay" role="dialog" aria-modal="false" aria-labelledby="widget-prompt-guide-title"><header><div><h2 id="widget-prompt-guide-title">You can ask…</h2></div><p>Start with the outcome you need. Steam Desk will choose a fitting widget and use your role and company to make it relevant.</p></header><div className="prompt-grid">{SAMPLE_PROMPTS.map((item) => <button type="button" className="prompt-card" key={item.prompt} onClick={() => void navigator.clipboard.writeText(item.prompt).then(() => { setCopiedPrompt(item.prompt); window.setTimeout(() => setCopiedPrompt(null), 1600); })}><span className="prompt-mode">{item.mode}</span><span className="prompt-copy">“{item.prompt}”</span><span className="prompt-action">{copiedPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</span></button>)}</div></section> : null}
   </div> : null;
-  return <><DemoSwitcher active="builder">{pageHeader}</DemoSwitcher><main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk dashboard demo">
+  return <><DemoSwitcher active="builder">{pageHeader}</DemoSwitcher>{resetConfirmationOpen ? <div className="reset-demo-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setResetConfirmationOpen(false); }}><section className="reset-demo-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-demo-title" aria-describedby="reset-demo-description"><span className="reset-demo-mark" aria-hidden="true">↺</span><div><h2 id="reset-demo-title">Reset this demo?</h2><p id="reset-demo-description">This permanently deletes the audience, dashboard, and reports saved by this site in your browser, then starts onboarding again.</p></div><div className="reset-demo-actions"><button type="button" autoFocus onClick={() => setResetConfirmationOpen(false)}>Cancel</button><button type="button" className="confirm-reset" onClick={resetDemo}>Reset demo</button></div></section></div> : null}<main className={`site-shell builder-site-shell ${onboardingActive ? "is-onboarding" : ""}`}><section className={`release-desk builder-desk ${onboardingActive ? "onboarding-mode" : ""}`} aria-label="Steam Desk dashboard demo">
     <section className={`page-workspace ${onboardingActive ? "onboarding-workspace" : ""} ${editMode ? "edit-mode" : "view-mode"}`} ref={workspaceSectionRef} aria-labelledby={onboardingActive ? "audience-brief-title" : "workspace-title"}>
       {workspace && onboardingActive ? (
         <AudienceOnboarding
-          stage={editingAudience ? "audience_required" : workspace.onboarding.stage}
+          stage={workspace.onboarding.stage}
           audience={workspace.audience}
           connectionStatus={webMcpStatus}
-          canCancel={audienceReady}
-          onCancel={() => setEditingAudience(false)}
         />
       ) : workspace ? workspace.blocks.length ? (
         <div className={`page-canvas ${editMode ? "is-editing" : "is-viewing"}`} onDragOver={editMode ? (event) => event.preventDefault() : undefined} onDrop={editMode ? (event) => { if (event.currentTarget !== event.target) return; const id = draggedId ?? event.dataTransfer.getData("text/plain"); setDraggedId(null); if (id) applyUiOperations([{ op: "move", target: id, toRootEnd: true }]); } : undefined}>

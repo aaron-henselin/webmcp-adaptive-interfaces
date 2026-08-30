@@ -9,8 +9,6 @@ type AudienceOnboardingProps = {
   stage: OnboardingStage;
   audience: AudienceContext;
   connectionStatus: WebMcpStatus;
-  canCancel: boolean;
-  onCancel?: () => void;
 };
 
 function ConnectionSignal({ unavailable = false }: { unavailable?: boolean }) {
@@ -28,7 +26,7 @@ function timeGreeting() {
   return "Good evening";
 }
 
-export default function AudienceOnboarding({ stage, audience, connectionStatus, canCancel, onCancel }: AudienceOnboardingProps) {
+export default function AudienceOnboarding({ stage, audience, connectionStatus }: AudienceOnboardingProps) {
   const [copied, setCopied] = useState(false);
   const audienceReady = Boolean(audience.firstName && audience.jobRole && audience.company);
   const proposalRequired = stage === "proposal_required" && audienceReady;
@@ -64,6 +62,7 @@ export default function AudienceOnboarding({ stage, audience, connectionStatus, 
       <section className="audience-invitation-copy" role="status" aria-live="polite" aria-labelledby="audience-brief-title">
         <h3 id="audience-brief-title">You&rsquo;re almost there, {audience.firstName}.</h3>
         <p>We&rsquo;re just waiting for your browser to submit the final plan.</p>
+        <small className="audience-resume-hint">Stuck? Say <b>“continue onboarding”</b>.</small>
       </section>
     </div>;
   }
@@ -106,7 +105,6 @@ export default function AudienceOnboarding({ stage, audience, connectionStatus, 
 
         <p className="audience-privacy"><span aria-hidden="true">⌂</span> Stored only in this browser. Company matching uses the public Steam catalog and does not verify identity.</p>
         <div className="audience-form-actions">
-          {canCancel ? <button type="button" className="audience-cancel" onClick={onCancel}>Keep current audience</button> : null}
           {!proposalRequired ? <button type="button" className="audience-continue" onClick={copyPrompt}>{copied ? "Prompt copied ✓" : "Copy setup prompt"}<span aria-hidden="true">↗</span></button> : <span className="audience-waiting">Waiting for the agent’s proposal</span>}
         </div>
       </section>

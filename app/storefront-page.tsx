@@ -20,7 +20,7 @@ type SortKey = typeof SORTS[number];
 type HighlightField = typeof HIGHLIGHT_FIELDS[number];
 type FacetBand = { id: string; label: string; min?: number; max?: number };
 type CustomFacet = { id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
-type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[] };
+type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean };
 type StorefrontPageProps = { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (status: WebMcpStatus) => void };
 
 const SEARCH_SCHEMA = {
@@ -37,6 +37,7 @@ const SEARCH_SCHEMA = {
     minReviewCount: { type: "integer", minimum: 0, maximum: 10000000 },
     sort: { type: "string", enum: SORTS },
     direction: { type: "string", enum: ["asc", "desc"] },
+    excludeOwned: { type: "boolean", default: true, description: "Exclude games already stored in this browser's local library. Keep true unless the user explicitly asks to browse owned games." },
     presentation: {
       type: "object", additionalProperties: false,
       properties: {
@@ -225,6 +226,15 @@ function normalizeRanking(value: unknown): StorefrontRankingFactor[] {
   }).slice(0, 5);
 }
 
+function mostCommon(values: string[], limit = 5) {
+  const counts = new Map<string, number>();
+  for (const value of values.map((item) => item.trim()).filter(Boolean)) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count }));
+}
+
 export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: StorefrontPageProps) {
   const [catalog, setCatalog] = useState<CatalogPage | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -244,6 +254,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   const [library, setLibrary] = useState<Set<number>>(new Set());
   const [addingId, setAddingId] = useState<number | null>(null);
   const customFacetsRef = useRef<CustomFacet[]>([]);
+  const libraryRef = useRef<Set<number>>(new Set());
   const storageLoadedRef = useRef(false);
   const timersRef = useRef<number[]>([]);
 
@@ -252,7 +263,8 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
     return selected ? [{ field: facet.field, min: selected.min, max: selected.max }] : [];
   }), [customFacets, selectedCustomBands]);
   const ranking = presentation?.ranking ?? [];
-  const requestKey = JSON.stringify([search, priceBand, genre, tag, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking]);
+  const ownedExclusions = useMemo(() => presentation?.excludeOwned ? [...library].slice(0, 200) : [], [library, presentation?.excludeOwned]);
+  const requestKey = JSON.stringify([search, priceBand, genre, tag, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
 
   useEffect(() => {
     try {
@@ -262,12 +274,16 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         customFacetsRef.current = valid; setCustomFacets(valid);
       }
       const owned = JSON.parse(window.localStorage.getItem(LIBRARY_KEY) ?? "[]") as unknown;
-      if (Array.isArray(owned)) setLibrary(new Set(owned.filter((id): id is number => Number.isInteger(id)).slice(0, 2000)));
+      if (Array.isArray(owned)) {
+        const nextLibrary = new Set(owned.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 2000));
+        libraryRef.current = nextLibrary;
+        setLibrary(nextLibrary);
+      }
       const session = JSON.parse(window.sessionStorage.getItem(SEARCH_SESSION_KEY) ?? "null") as unknown;
       if (isRecord(session) && isRecord(session.presentation)) {
         const stored = session.presentation as unknown as SearchPresentation;
         if (LAYOUTS.includes(stored.mode) && Array.isArray(stored.highlights) && Array.isArray(stored.ranking)) {
-          setPresentation(stored); setSearch(cleanText(session.search, "", 120));
+          setPresentation({ ...stored, excludeOwned: stored.excludeOwned !== false }); setSearch(cleanText(session.search, "", 120));
           if (PRICE_BANDS.includes(session.priceBand as (typeof PRICE_BANDS)[number])) setPriceBand(session.priceBand as (typeof PRICE_BANDS)[number]);
           setGenre(cleanText(session.genre, "", 80)); setTag(cleanText(session.tag, "", 80));
           if (typeof session.minPositiveRatio === "number") setMinPositiveRatio(session.minPositiveRatio);
@@ -288,6 +304,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
 
   useEffect(() => {
     if (!storageLoadedRef.current) return;
+    libraryRef.current = library;
     try { window.localStorage.setItem(LIBRARY_KEY, JSON.stringify([...library])); } catch { /* Session fallback. */ }
   }, [library]);
 
@@ -302,7 +319,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      loadCatalogPage({ search, ownerBand: "All owner ranges", priceBand, sort, direction, page, pageSize: PAGE_SIZE, genre, tag, minPositiveRatio, minReviewCount, numericFilters, ranking }, controller.signal)
+      loadCatalogPage({ search, ownerBand: "All owner ranges", priceBand, sort, direction, page, pageSize: PAGE_SIZE, genre, tag, minPositiveRatio, minReviewCount, numericFilters, ranking, excludeAppIds: ownedExclusions }, controller.signal)
         .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setResolvedKey(requestKey); } })
         .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Store catalog unavailable."); setResolvedKey(requestKey); } });
     }, search ? 160 : 0);
@@ -329,7 +346,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
     const tools = [
       {
         name: "describe_storefront",
-        description: "Describe the Steam storefront fields, filters, ranking formula fields, adaptive templates, and saved custom facets.",
+        description: "Describe the Steam storefront fields, filters, ranking formula fields, adaptive templates, saved custom facets, and local library behavior.",
         inputSchema: { type: "object", additionalProperties: false, properties: {} },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
         execute: () => ({
@@ -338,7 +355,10 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             schemaVersion: "steam-desk.storefront/v1",
             catalog: { recordCount: catalogRecordCount, genres: catalog?.facets.genres.slice(0, 30).map((item) => item.label) ?? [], tags: catalog?.facets.tags.slice(0, 40).map((item) => item.label) ?? [] },
             presentationModes: LAYOUTS, rankingFields: NUMERIC_FIELDS.map((field) => ({ field, meaning: fieldLabel(field) })), customFacets: customFacetsRef.current,
+            library: { count: libraryRef.current.size, storage: "local" },
             guidance: [
+              "Call get_storefront_library before recommendations, discovery, comparisons, or rankings to learn the user's tastes and know which app IDs are already owned.",
+              "Adaptive searches exclude locally owned games by default unless the user explicitly asks to browse owned games.",
               "Use search_storefront for natural-language shopping and ranking requests.",
               "Choose ranking only when the request compares or prioritizes results; otherwise use grid, list, or table.",
               "Ranking factors are normalized and weighted. Use direction lower for price when affordability should improve the score.",
@@ -349,8 +369,58 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
         }),
       },
       {
+        name: "get_storefront_library",
+        description: "Get the games stored in this browser's local library plus a compact taste profile. Call before recommendations, discovery, comparison, or ranking so owned games can be excluded and results can reflect the user's genres, tags, developers, publishers, review preferences, and playtime signals.",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+        annotations: { readOnlyHint: true, untrustedContentHint: false },
+        execute: async () => {
+          try {
+            const ids = [...libraryRef.current].slice(0, 2000);
+            if (!ids.length) return {
+              content: [{ type: "text", text: "The local storefront library is empty." }],
+              structuredContent: {
+                schemaVersion: "steam-desk.storefront-library/v1", storage: "local", count: 0, appIds: [], games: [],
+                tasteProfile: { genres: [], tags: [], developers: [], publishers: [], averagePositiveRatio: null, averagePlaytimeHours: null, freeGames: 0 },
+              },
+            };
+            const result = await loadCatalogPage({
+              search: "", ownerBand: "All owner ranges", priceBand: "All prices", sort: "title", direction: "asc", page: 0, pageSize: 100,
+              appIds: ids.slice(0, 100),
+            }, controller.signal);
+            const games = result.games;
+            const averagePositiveRatio = games.length ? games.reduce((sum, game) => sum + (game.positiveRatio ?? 0), 0) / games.length : null;
+            const averagePlaytimeHours = games.length ? games.reduce((sum, game) => sum + game.averageForever, 0) / games.length / 60 : null;
+            const tasteProfile = {
+              genres: mostCommon(games.flatMap((game) => game.genres)),
+              tags: mostCommon(games.flatMap((game) => game.tags), 8),
+              developers: mostCommon(games.flatMap((game) => game.developer.split(","))),
+              publishers: mostCommon(games.flatMap((game) => game.publisher.split(","))),
+              averagePositiveRatio: averagePositiveRatio === null ? null : Math.round(averagePositiveRatio * 1000) / 1000,
+              averagePlaytimeHours: averagePlaytimeHours === null ? null : Math.round(averagePlaytimeHours * 10) / 10,
+              freeGames: games.filter((game) => game.priceCents === 0).length,
+            };
+            const genreSummary = tasteProfile.genres.map((item) => item.label).join(", ") || "no strong genre signal yet";
+            return {
+              content: [{ type: "text", text: "Read " + ids.length + " locally owned games. Strongest genre signals: " + genreSummary + "." }],
+              structuredContent: {
+                schemaVersion: "steam-desk.storefront-library/v1", storage: "local", count: ids.length, appIds: ids,
+                sampledGameCount: games.length,
+                games: games.map((game) => ({
+                  id: game.id, title: game.title, developer: game.developer, publisher: game.publisher, genres: game.genres, tags: game.tags,
+                  positiveRatio: game.positiveRatio, reviewCount: game.reviewCount, ownersMax: game.ownersMax, ccu: game.ccu,
+                  averageForever: game.averageForever, releaseYear: game.releaseYear,
+                })),
+                tasteProfile,
+              },
+            };
+          } catch (error) {
+            return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The local library could not be read." }] };
+          }
+        },
+      },
+      {
         name: "search_storefront",
-        description: "Use for every natural-language request to find, browse, show, compare, recommend, or rank storefront games. Perform the search and choose the result template that fits the user's intent. Grid supports visual discovery, list supports compact comparison, table supports exact inspection, and ranking supports prioritized recommendations.",
+        description: "Use for every natural-language request to find, browse, show, compare, recommend, or rank storefront games. Perform the search, exclude locally owned games by default, and choose the result template that fits the user's intent. Grid supports visual discovery, list supports compact comparison, table supports exact inspection, and ranking supports prioritized recommendations.",
         inputSchema: SEARCH_SCHEMA,
         annotations: { readOnlyHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
@@ -368,7 +438,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             const nextPresentation: SearchPresentation = {
               title: cleanText(input.title, "Results shaped around your request", 90),
               explanation: cleanText(input.explanation, "The browser selected the fields and layout that make this search easiest to evaluate.", 180),
-              mode, highlights, ranking: nextRanking,
+              mode, highlights, ranking: nextRanking, excludeOwned: input.excludeOwned !== false,
             };
             setSearch(cleanText(input.query, "", 120)); setGenre(cleanText(input.genre, "", 80)); setTag(cleanText(input.tag, "", 80));
             setPriceBand(PRICE_BANDS.includes(input.priceBand as (typeof PRICE_BANDS)[number]) ? input.priceBand as (typeof PRICE_BANDS)[number] : "All prices");
@@ -376,7 +446,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
             setMinReviewCount(typeof input.minReviewCount === "number" ? Math.max(0, Math.round(input.minReviewCount)) : undefined);
             setSort(SORTS.includes(input.sort as SortKey) ? input.sort as SortKey : nextRanking.length ? "positiveRatio" : "ownersMax");
             setDirection(input.direction === "asc" ? "asc" : "desc"); setPresentation(nextPresentation); setPage(0);
-            return { content: [{ type: "text", text: "Applied “" + nextPresentation.title + "” in the " + mode + " storefront layout." }], structuredContent: { schemaVersion: "steam-desk.storefront-search-receipt/v1", ok: true, query: cleanText(input.query, "", 120), presentation: nextPresentation, persistence: "session until search is cleared" } };
+            return { content: [{ type: "text", text: "Applied “" + nextPresentation.title + "” in the " + mode + " storefront layout." }], structuredContent: { schemaVersion: "steam-desk.storefront-search-receipt/v1", ok: true, query: cleanText(input.query, "", 120), presentation: nextPresentation, excludedOwnedCount: nextPresentation.excludeOwned ? libraryRef.current.size : 0, persistence: "session until search is cleared" } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The storefront search could not be applied." }], structuredContent: { ok: false } };
           }
@@ -433,7 +503,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
   const addToLibrary = useCallback((id: number) => {
     if (library.has(id) || addingId !== null) return;
     setAddingId(id);
-    const timer = window.setTimeout(() => { setLibrary((items) => new Set(items).add(id)); setAddingId(null); }, 760);
+    const timer = window.setTimeout(() => { setLibrary((items) => { const next = new Set(items); next.add(id); libraryRef.current = next; return next; }); setAddingId(null); }, 760);
     timersRef.current.push(timer);
   }, [addingId, library]);
 
@@ -471,7 +541,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
 
       {presentation ? <section className={"result-briefing mode-" + presentation.mode} aria-labelledby="result-briefing-title">
         <div><span>Composed by your browser</span><h2 id="result-briefing-title">{presentation.title}</h2><p>{presentation.explanation}</p></div>
-        <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontNumericField)).join(" · ") : "Visual discovery"}</span>}</div>
+        <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontNumericField)).join(" · ") : "Visual discovery"}</span>}{presentation.excludeOwned && ownedExclusions.length ? <span>{ownedExclusions.length} owned games excluded</span> : null}</div>
       </section> : null}
 
       <div className="storefront-body">

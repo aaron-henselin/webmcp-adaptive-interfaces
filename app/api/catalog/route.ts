@@ -104,7 +104,23 @@ function filters(params: URLSearchParams) {
   const tag = (params.get("tag") ?? "").slice(0, 80);
   const minPositiveRatio = boundedNumber(params.get("minPositiveRatio"), -1, -1, 1);
   const minReviewCount = boundedInteger(params.get("minReviewCount"), -1, -1, 10_000_000);
+  const appIds = parseArray(params.get("appIds"))
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .slice(0, 200);
+  const excludeAppIds = parseArray(params.get("excludeAppIds"))
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .slice(0, 200);
 
+  if (appIds.length) {
+    clauses.push(`g.app_id IN (${appIds.map(() => "?").join(", ")})`);
+    values.push(...appIds);
+  }
+  if (excludeAppIds.length) {
+    clauses.push(`g.app_id NOT IN (${excludeAppIds.map(() => "?").join(", ")})`);
+    values.push(...excludeAppIds);
+  }
   if (search) {
     clauses.push("g.app_id IN (SELECT CAST(app_id AS INTEGER) FROM game_search WHERE game_search MATCH ?)");
     values.push(search);

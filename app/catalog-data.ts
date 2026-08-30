@@ -58,6 +58,8 @@ export type CatalogPageOptions = {
   minReviewCount?: number;
   numericFilters?: StorefrontNumericFilter[];
   ranking?: StorefrontRankingFactor[];
+  appIds?: number[];
+  excludeAppIds?: number[];
 };
 
 export type GameCompany = {
@@ -111,6 +113,8 @@ export async function loadCatalogPage(options: CatalogPageOptions, signal?: Abor
   if (options.minReviewCount !== undefined) params.set("minReviewCount", String(options.minReviewCount));
   if (options.numericFilters?.length) params.set("numericFilters", JSON.stringify(options.numericFilters));
   if (options.ranking?.length) params.set("ranking", JSON.stringify(options.ranking));
+  if (options.appIds?.length) params.set("appIds", JSON.stringify(options.appIds));
+  if (options.excludeAppIds?.length) params.set("excludeAppIds", JSON.stringify(options.excludeAppIds));
   const response = await fetch(`/api/catalog?${params}`, { signal, cache: "no-store" });
   const value = await response.json() as CatalogPage | { error?: string };
   if (!response.ok) throw new Error("error" in value && value.error ? value.error : `Catalog request failed with status ${response.status}.`);

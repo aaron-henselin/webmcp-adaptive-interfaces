@@ -14,6 +14,7 @@ const SORTS = ["ownersMax", "title", "priceCents", "positiveRatio", "reviewCount
 const LAYOUTS = ["grid", "list", "table", "ranking"] as const;
 const NUMERIC_FIELDS: StorefrontNumericField[] = ["positiveRatio", "reviewCount", "priceCents", "ownersMax", "ccu", "averageForever", "releaseYear"];
 const HIGHLIGHT_FIELDS = ["positiveRatio", "reviewCount", "ownersMax", "ccu", "releaseYear", "averageForever", "publisher"] as const;
+const SKELETON_ITEMS = Array.from({ length: PAGE_SIZE }, (_, index) => index);
 
 type LayoutMode = typeof LAYOUTS[number];
 type SortKey = typeof SORTS[number];
@@ -235,6 +236,26 @@ function GameTable({ games, library, addingId, onAdd }: { games: CatalogGame[]; 
     <td>{formatPercent(game.positiveRatio)}</td><td>{formatCompact(game.ownersMax)}</td><td>{formatCompact(game.ccu)}</td><td>{formatPrice(game.priceCents)}</td>
     <td><BuyButton game={game} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={onAdd} /></td>
   </tr>)}</tbody></table></div>;
+}
+
+function StorefrontResultsSkeleton({ mode }: { mode: LayoutMode }) {
+  const itemCount = mode === "grid" ? PAGE_SIZE : mode === "table" ? 8 : 6;
+  return <div className={"store-skeleton store-skeleton-" + mode} aria-hidden="true">
+    {SKELETON_ITEMS.slice(0, itemCount).map((item) => <div className="store-skeleton-item" key={item}>
+      {mode === "ranking" ? <span className="store-skeleton-block store-skeleton-rank-number" /> : null}
+      <span className="store-skeleton-block store-skeleton-art" />
+      <span className="store-skeleton-copy">
+        <span className="store-skeleton-block store-skeleton-line short" />
+        <span className="store-skeleton-block store-skeleton-line title" />
+        <span className="store-skeleton-block store-skeleton-line medium" />
+      </span>
+      {mode !== "grid" ? <span className="store-skeleton-metrics">
+        <span className="store-skeleton-block" /><span className="store-skeleton-block" /><span className="store-skeleton-block" />
+      </span> : null}
+      {mode === "ranking" ? <span className="store-skeleton-block store-skeleton-score" /> : null}
+      <span className="store-skeleton-block store-skeleton-button" />
+    </div>)}
+  </div>;
 }
 
 function normalizeCustomFacet(input: Record<string, unknown>): CustomFacet {
@@ -725,7 +746,7 @@ export default function StorefrontPage({ webMcpStatus, onWebMcpStatusChange }: S
 
         <section className="storefront-results" aria-busy={loading} aria-live="polite">
           <div className="storefront-results-bar"><div><strong>{loading ? "Updating…" : total.toLocaleString() + " games"}</strong><span>{presentation ? activeMode + " view selected for this search" : "Conventional store results"}</span></div><div><span>{library.size} in library</span><b>{activeMode}</b></div></div>
-          {catalogError ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !loading && !games.length ? <div className="storefront-empty"><strong>No games match this search</strong><p>Clear a filter or try broader terms.</p><button type="button" onClick={clearSearch}>Clear search</button></div> : activeMode === "table" ? <GameTable games={games} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{games.map((game, index) => <RankingItem key={game.id} game={game} rank={visiblePage * PAGE_SIZE + index + 1} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{games.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{games.map((game) => <GameCard key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>}
+          {loading ? <StorefrontResultsSkeleton mode={activeMode} /> : catalogError ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !games.length ? <div className="storefront-empty"><strong>No games match this search</strong><p>Clear a filter or try broader terms.</p><button type="button" onClick={clearSearch}>Clear search</button></div> : activeMode === "table" ? <GameTable games={games} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{games.map((game, index) => <RankingItem key={game.id} game={game} rank={visiblePage * PAGE_SIZE + index + 1} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{games.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{games.map((game) => <GameCard key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>}
           <footer className="store-pagination"><span>{loading ? "Updating results…" : "Showing " + resultStart.toLocaleString() + "–" + resultEnd.toLocaleString() + " of " + total.toLocaleString()}</span><div><button type="button" disabled={loading || visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={loading || visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer>
         </section>
       </div>

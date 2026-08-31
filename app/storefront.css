@@ -34,11 +34,7 @@
 .storefront-prompt-starters button:nth-child(3) > span { color: #ffad96; }
 .storefront-prompt-starters button b { font-size: 10px; font-weight: 610; line-height: 1.4; }
 .storefront-prompt-starters button small { color: #9fc4d3; font-size: 8px; white-space: nowrap; }
-.storefront-manual-divider { min-height: 38px; padding: 0 18px; display: flex; align-items: center; gap: 9px; color: #71828c; background: #eaf1f4; }
-.storefront-manual-divider::after { content: ""; height: 1px; flex: 1; background: #cfdae0; }
-.storefront-manual-divider span { width: 26px; height: 20px; display: grid; place-items: center; border: 1px solid #c3d1d8; border-radius: 999px; color: #687b85; background: white; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase; }
-.storefront-manual-divider b { font-size: 9px; font-weight: 660; text-transform: uppercase; letter-spacing: .07em; }
-.storefront-manual-search { padding: 0 18px 15px; display: grid; grid-template-columns: minmax(260px,1fr) 190px auto; gap: 10px; background: #f3f7f9; }
+.storefront-manual-search { padding: 15px 18px; display: grid; grid-template-columns: minmax(260px,1fr) 190px auto; gap: 10px; background: #f3f7f9; }
 .storefront-manual-search label { min-width: 0; height: 43px; padding: 0 14px; display: flex; align-items: center; gap: 10px; border: 1px solid #bdcad2; border-radius: 0; background: white; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }
 .storefront-manual-search label > span:first-child { color: #547489; font-size: 21px; }
 .storefront-search input { width: 100%; border: 0; outline: 0; color: #17202a; background: transparent; font-size: 14px; }
@@ -279,7 +275,7 @@
   .storefront-browser-copy h2 { font-size: clamp(28px,9vw,38px); }
   .storefront-prompt-starters button { grid-template-columns: 74px minmax(0,1fr); }
   .storefront-prompt-starters button small { grid-column: 2; }
-  .storefront-manual-search { padding: 0 10px 10px; grid-template-columns: 1fr auto; }
+  .storefront-manual-search { padding: 10px; grid-template-columns: 1fr auto; }
   .storefront-manual-search label { grid-column: 1 / -1; }
   .storefront-search select { min-width: 0; }
   .result-briefing { padding: 22px; }

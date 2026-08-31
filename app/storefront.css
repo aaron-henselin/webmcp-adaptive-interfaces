@@ -84,13 +84,17 @@
 .custom-facet { background: rgba(102,192,244,.045); }
 .custom-facet legend button { width: 24px; height: 24px; border: 0; color: #7d8a92; background: transparent; font-size: 16px; cursor: pointer; }
 .custom-facet > small { margin-top: 9px; display: block; color: #89969e; font-size: 8px; line-height: 1.4; }
-.facet-add { position: relative; z-index: 12; margin: 15px; }
-.facet-add > summary { min-height: 38px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; border: 1px dashed #9eb8c5; border-radius: 8px; color: #285f79; background: rgba(255,255,255,.5); font-size: 10px; font-weight: 680; cursor: pointer; transition: color .16s ease,border-color .16s ease,background .16s ease; }
+.facet-add { position: relative; z-index: 12; margin: 14px 12px; }
+.facet-add > summary { min-height: 58px; padding: 9px 10px 9px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; border: 1px solid #81b9d1; border-radius: 10px; color: #164d68; background: radial-gradient(circle at 100% 0,rgba(127,209,239,.28),transparent 48%),linear-gradient(135deg,#f9fdff,#eaf7fb); box-shadow: 0 8px 20px rgba(26,99,132,.12),inset 0 1px 0 white; cursor: pointer; transition: transform .16s ease,color .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease; }
 .facet-add > summary::-webkit-details-marker { display: none; }
-.facet-add > summary:hover, .facet-add[open] > summary { color: #16455c; border-color: #61a6c6; background: white; }
+.facet-add > summary:hover, .facet-add[open] > summary { color: #103e54; border-color: #3c9fc7; background: radial-gradient(circle at 100% 0,rgba(127,209,239,.36),transparent 50%),linear-gradient(135deg,#fff,#e4f5fb); box-shadow: 0 10px 24px rgba(26,99,132,.18),inset 0 1px 0 white; }
+.facet-add > summary:hover { transform: translateY(-1px); }
 .facet-add > summary:focus-visible { outline: 3px solid rgba(22,119,168,.26); outline-offset: 2px; }
-.facet-add > summary span { color: #3187ad; font: 700 17px/1 "Cascadia Mono", ui-monospace, monospace; }
-.facet-add[open] > summary span { transform: rotate(45deg); }
+.facet-add-copy { display: grid; gap: 5px; }
+.facet-add-copy small { color: #347d9c; font: 700 7px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .11em; text-transform: uppercase; }
+.facet-add-copy b { font-size: 11px; font-weight: 720; letter-spacing: -.01em; }
+.facet-add-icon { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: white; background: linear-gradient(145deg,#2d91b9,#176b91); box-shadow: 0 5px 12px rgba(23,107,145,.26),inset 0 1px 0 rgba(255,255,255,.24); font: 700 18px/1 "Cascadia Mono", ui-monospace, monospace; transition: transform .2s ease; }
+.facet-add[open] .facet-add-icon { transform: rotate(45deg); }
 .facet-prompt-menu { position: absolute; z-index: 30; top: calc(100% + 9px); left: 0; width: 380px; max-width: calc(100vw - 44px); overflow: hidden; border: 1px solid #b8ccd6; border-radius: 12px; background: rgba(255,255,255,.98); box-shadow: 0 22px 55px rgba(22,48,63,.24),0 4px 12px rgba(22,48,63,.08); backdrop-filter: blur(18px); }
 .facet-prompt-menu::before { content: ""; position: absolute; top: -7px; left: 24px; width: 12px; height: 12px; transform: rotate(45deg); border-top: 1px solid #b8ccd6; border-left: 1px solid #b8ccd6; background: white; }
 .facet-prompt-menu header { padding: 17px 18px 13px; border-bottom: 1px solid #e0e8ec; background: linear-gradient(120deg,#f5fbfd,#faf7ff); }
@@ -315,6 +319,6 @@
   .store-pagination { padding-block: 12px; align-items: flex-start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .store-card, .store-art::after, .store-buy, .facet-add > summary, .storefront-prompt-starters button { transition: none; }
+  .store-card, .store-art::after, .store-buy, .facet-add > summary, .facet-add-icon, .storefront-prompt-starters button { transition: none; }
   .storefront-demo-host::before, .storefront-demo-host::after, .store-buy.is-adding, .store-skeleton-block, .store-best-signal i, .storefront-prompt-starters button, .storefront-prompt-starters button::after { animation: none; }
 }

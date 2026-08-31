@@ -12,7 +12,7 @@ import { CatalogTableSkeleton } from "./loading-skeletons";
 
 type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
 type SortDirection = "asc" | "desc";
-type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes";
+type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes" | "year";
 type MetricSpec = { valueField: string; label: string; format: ValueFormat; context: string };
 type TableColumn = { field: string; label: string; format: ValueFormat };
 type ReportPresentation =
@@ -27,7 +27,7 @@ type OpenReport = { report: SavedReport; rows: Record<string, unknown>[]; figure
 const PAGE_SIZE = 12;
 const MAX_SAVED_REPORTS = 8;
 const SAVED_REPORTS_KEY = "steam-desk:saved-reports:v5";
-const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "currencyCents", "percent", "minutes"];
+const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "currencyCents", "percent", "minutes", "year"];
 const coverMarks = ["◜", "◇", "◉", "⌁", "△", "✣", "⊙", "╱"];
 const ownerBandLabels = new Map(OWNER_BANDS.map((band) => {
   const [ownersMin, ownersMax] = band.split("..").map((value) => Number(value.replaceAll(",", "").trim()));
@@ -55,21 +55,21 @@ const SAMPLE_PROMPTS = [
 const PLOTLY_TRACE_SCHEMA = { type: "object", additionalProperties: true, properties: { type: { type: "string", enum: [...PLOTLY_TRACE_TYPES] }, name: { type: "string" }, x: { type: "array", maxItems: 2_000, items: {} }, y: { type: "array", maxItems: 2_000, items: {} }, labels: { type: "array", maxItems: 2_000, items: {} }, values: { type: "array", maxItems: 2_000, items: {} }, mode: { type: "string" }, orientation: { type: "string", enum: ["h", "v"] }, hole: { type: "number", minimum: 0, maximum: 0.9 }, marker: { type: "object", additionalProperties: true }, line: { type: "object", additionalProperties: true }, text: { type: "array", maxItems: 2_000, items: {} }, hovertemplate: { type: "string" } } };
 const REPORT_DATA_SCHEMA = { type: "object", additionalProperties: false, properties: { source: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.source, pipeline: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.pipeline, resultLimit: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.resultLimit }, required: ["source", "pipeline", "resultLimit"] };
 const REPORT_VISUALIZATION_SCHEMA = { type: "object", additionalProperties: false, properties: { renderer: { type: "string", const: "plotly" }, traces: { type: "array", minItems: 1, maxItems: 12, items: PLOTLY_TRACE_SCHEMA }, layout: { type: "object", additionalProperties: true }, encoding: CATALOG_ANALYTICS_BINDING_SCHEMA.properties.encoding }, required: ["renderer", "traces", "encoding"] };
-const REPORT_METRIC_SCHEMA = { type: "object", additionalProperties: false, properties: { valueField: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 80 }, format: { type: "string", enum: VALUE_FORMATS }, context: { type: "string", maxLength: 180 } }, required: ["valueField", "label"] };
-const REPORT_COLUMN_SCHEMA = { type: "object", additionalProperties: false, properties: { field: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 60 }, format: { type: "string", enum: VALUE_FORMATS } }, required: ["field", "label"] };
+const REPORT_METRIC_SCHEMA = { type: "object", additionalProperties: false, properties: { valueField: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 80 }, format: { type: "string", enum: VALUE_FORMATS, description: "Use year for calendar-year fields. releaseYear always renders as a year when this is omitted or set to a generic numeric format." }, context: { type: "string", maxLength: 180 } }, required: ["valueField", "label"] };
+const REPORT_COLUMN_SCHEMA = { type: "object", additionalProperties: false, properties: { field: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 60 }, format: { type: "string", enum: VALUE_FORMATS, description: "Use year for calendar-year fields. releaseYear always renders as a year when this is omitted or set to a generic numeric format." } }, required: ["field", "label"] };
 const REPORT_PRESENTATION_SCHEMA = createReportPresentationSchema({ metric: REPORT_METRIC_SCHEMA, tableColumn: REPORT_COLUMN_SCHEMA, visualization: REPORT_VISUALIZATION_SCHEMA });
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const text = (value: unknown, fallback: string, limit: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : fallback;
-const valueFormat = (value: unknown): ValueFormat => VALUE_FORMATS.includes(value as ValueFormat) ? value as ValueFormat : "number";
+const valueFormat = (value: unknown, field: string): ValueFormat => field === "releaseYear" ? "year" : VALUE_FORMATS.includes(value as ValueFormat) ? value as ValueFormat : "number";
 
 function metric(value: unknown): MetricSpec | null {
   if (!isRecord(value) || typeof value.valueField !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value.valueField)) return null;
-  return { valueField: value.valueField, label: text(value.label, value.valueField, 80), format: valueFormat(value.format), context: text(value.context, "", 180) };
+  return { valueField: value.valueField, label: text(value.label, value.valueField, 80), format: valueFormat(value.format, value.valueField), context: text(value.context, "", 180) };
 }
 
 function columns(value: unknown): TableColumn[] {
-  return Array.isArray(value) ? value.flatMap((item): TableColumn[] => isRecord(item) && typeof item.field === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(item.field) ? [{ field: item.field, label: text(item.label, item.field, 60), format: valueFormat(item.format) }] : []).slice(0, 8) : [];
+  return Array.isArray(value) ? value.flatMap((item): TableColumn[] => isRecord(item) && typeof item.field === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(item.field) ? [{ field: item.field, label: text(item.label, item.field, 60), format: valueFormat(item.format, item.field) }] : []).slice(0, 8) : [];
 }
 
 function createPresentation(input: Record<string, unknown>) {
@@ -102,6 +102,7 @@ function formatValue(value: unknown, format: ValueFormat) {
   if (format === "percent") return formatPercent(number);
   if (format === "minutes") return formatPlaytime(number);
   if (format === "compact") return formatCompact(number);
+  if (format === "year") return String(Math.round(number));
   return format === "integer" ? Math.round(number).toLocaleString() : number.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
@@ -131,7 +132,7 @@ function markdownReport(opened: OpenReport) {
   if (presentation.mode === "metric" || presentation.mode === "mixed") lines.push(`**${presentation.metric.label}:** ${formatValue(opened.rows[0]?.[presentation.metric.valueField], presentation.metric.format)}`);
   else if (presentation.mode === "narrative") lines.push(presentation.narrative.body);
   else {
-    const reportColumns = presentation.mode === "table" ? presentation.table.columns : Object.keys(opened.rows[0] ?? {}).slice(0, 8).map((field) => ({ field, label: field, format: "number" as ValueFormat }));
+    const reportColumns = presentation.mode === "table" ? presentation.table.columns : Object.keys(opened.rows[0] ?? {}).slice(0, 8).map((field) => ({ field, label: field, format: field === "releaseYear" ? "year" as ValueFormat : "number" as ValueFormat }));
     lines.push(`| ${reportColumns.map((column) => column.label).join(" | ")} |`, `| ${reportColumns.map(() => "---").join(" | ")} |`);
     for (const row of opened.rows.slice(0, 20)) lines.push(`| ${reportColumns.map((column) => String(formatValue(row[column.field], column.format)).replaceAll("|", "\\|")).join(" | ")} |`);
   }
@@ -238,7 +239,7 @@ export default function CatalogPage({ webMcpStatus, onWebMcpStatusChange }: { we
     };
 
     const tools = [
-      { name: "describe_steam_catalog", description: "Describe the database-backed Steam catalog fields, filters, analytics operations, and presentation contract. Use before creating a report when field meanings or genre/tag expansion are unclear.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => ({ content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable catalog fields.` }], structuredContent: { schemaVersion: "steam-desk.datasource/v2", source: { name: "steam_catalog", label: "Steam catalog database", recordCount: catalogRecordCount }, fields: CATALOG_FIELD_CATALOG, reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Route every data-derived request through create_report, even when it is phrased as a natural question and never mentions reports or saving.", "Use explode with genres, tags, categories, developers, publishers, or languages before grouping by an individual value.", "For tags, explode also provides tagWeight.", "Report results are capped at 2,000 rows and execute in the database.", REPORT_PRESENTATION_DESCRIPTION] } }) },
+      { name: "describe_steam_catalog", description: "Describe the database-backed Steam catalog fields, filters, analytics operations, and presentation contract. Use before creating a report when field meanings or genre/tag expansion are unclear.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => ({ content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable catalog fields.` }], structuredContent: { schemaVersion: "steam-desk.datasource/v2", source: { name: "steam_catalog", label: "Steam catalog database", recordCount: catalogRecordCount }, fields: CATALOG_FIELD_CATALOG, reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, valueFormats: VALUE_FORMATS }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Route every data-derived request through create_report, even when it is phrased as a natural question and never mentions reports or saving.", "Use explode with genres, tags, categories, developers, publishers, or languages before grouping by an individual value.", "For tags, explode also provides tagWeight.", "Report results are capped at 2,000 rows and execute in the database.", REPORT_PRESENTATION_DESCRIPTION] } }) },
       { name: "create_report", description: "Use for every request that asks for an answer, calculation, analysis, ranking, comparison, summary, table, chart, or narrative from Steam catalog data, even when the user does not say report or save. This is the reporting interface for all data-derived answers. Save exactly one presentation: metric, table, chart, narrative, or mixed. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Returns only a compact receipt.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const opened = await createReport(input); return { content: [{ type: "text", text: `Created and saved “${opened.report.title}”.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v3", ok: true, created: true, saved: true, browser: { opened: input.openInBrowser !== false }, report: { id: opened.report.id, title: opened.report.title, mode: opened.report.presentation.mode, rowCount: opened.rows.length } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }], structuredContent: { ok: false, retryable: false } }; } } },
       { name: "render_report", description: "Render an existing saved report as bounded Markdown or, for chart reports, a PNG.", inputSchema: { type: "object", additionalProperties: false, properties: { reportId: { type: "string", minLength: 1, maxLength: 128 }, renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto" } }, required: ["reportId"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const report = savedReportsRef.current.find((item) => item.id === input.reportId); if (!report) throw new Error("Saved report not found."); const opened = await runReport(report); const imageMode = input.renderMode === "image" || input.renderMode !== "markdown" && Boolean(opened.figure); if (imageMode) { if (!opened.figure) throw new Error("Image rendering is available only for chart reports."); return { content: [{ type: "text", text: `Rendered “${report.title}” as a PNG.` }, { type: "image", data: await renderPlotlyFigureToPng(opened.figure), mimeType: "image/png" }], structuredContent: { ok: true, rendered: true, report: { id: report.id, title: report.title } } }; } return { content: [{ type: "text", text: markdownReport(opened) }], structuredContent: { ok: true, rendered: true, report: { id: report.id, title: report.title } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report rendering failed." }] }; } } },
     ];

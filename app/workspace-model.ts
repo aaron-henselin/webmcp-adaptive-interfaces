@@ -3,7 +3,7 @@ import { normalizeEngagementAnalyticsBinding, type EngagementAnalyticsBinding } 
 import { normalizePlotlyFigure, type PlotlyFigure } from "./plotly-visualization";
 
 export type BlockSpan = "full" | "half" | "third" | "quarter";
-export type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes";
+export type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes" | "year";
 export type MetricSpec = { valueField: string; label: string; format: ValueFormat; context: string };
 export type TableColumn = { field: string; label: string; format: ValueFormat };
 export type ReportPresentation =
@@ -58,7 +58,7 @@ export const MAX_WORKSPACE_BLOCKS = 32;
 export const MAX_TABS = 6;
 export const MAX_HTML_LENGTH = 2_000;
 export const SPANS: BlockSpan[] = ["full", "half", "third", "quarter"];
-export const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "currencyCents", "percent", "minutes"];
+export const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "currencyCents", "percent", "minutes", "year"];
 
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const BINDING_PATTERN = /{{\s*([A-Za-z][A-Za-z0-9_.]*)\s*}}/g;
@@ -69,17 +69,17 @@ const ALLOWED_TAGS = new Set(["P", "DIV", "SPAN", "H2", "H3", "H4", "STRONG", "E
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const cleanText = (value: unknown, fallback: string, limit: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : fallback;
 const span = (value: unknown): BlockSpan => SPANS.includes(value as BlockSpan) ? value as BlockSpan : "full";
-const valueFormat = (value: unknown): ValueFormat => VALUE_FORMATS.includes(value as ValueFormat) ? value as ValueFormat : "number";
+const valueFormat = (value: unknown, field: string): ValueFormat => field === "releaseYear" ? "year" : VALUE_FORMATS.includes(value as ValueFormat) ? value as ValueFormat : "number";
 
 function metric(value: unknown): MetricSpec | null {
   if (!isRecord(value) || typeof value.valueField !== "string" || !FIELD_NAME.test(value.valueField)) return null;
-  return { valueField: value.valueField, label: cleanText(value.label, value.valueField, 80), format: valueFormat(value.format), context: cleanText(value.context, "", 180) };
+  return { valueField: value.valueField, label: cleanText(value.label, value.valueField, 80), format: valueFormat(value.format, value.valueField), context: cleanText(value.context, "", 180) };
 }
 
 function tableColumns(value: unknown): TableColumn[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item): TableColumn[] => isRecord(item) && typeof item.field === "string" && FIELD_NAME.test(item.field)
-    ? [{ field: item.field, label: cleanText(item.label, item.field, 60), format: valueFormat(item.format) }]
+    ? [{ field: item.field, label: cleanText(item.label, item.field, 60), format: valueFormat(item.format, item.field) }]
     : []).slice(0, 8);
 }
 

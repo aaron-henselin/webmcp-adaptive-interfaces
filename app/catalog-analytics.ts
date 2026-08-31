@@ -18,7 +18,7 @@ export const CATALOG_FIELD_CATALOG = [
   { name: "medianForever", type: "integer", description: "Median all-time playtime.", unit: "minutes" },
   { name: "median2Weeks", type: "integer", description: "Median two-week playtime.", unit: "minutes" },
   { name: "releaseDate", type: ["string", "null"], description: "ISO release date." },
-  { name: "releaseYear", type: ["integer", "null"], description: "Release year." },
+  { name: "releaseYear", type: ["integer", "null"], description: "Release year.", semanticType: "year", defaultFormat: "year" },
   { name: "requiredAge", type: "integer", description: "Minimum required age." },
   { name: "dlcCount", type: "integer", description: "DLC count." },
   { name: "metacriticScore", type: "integer", description: "Metacritic score, or zero when unavailable." },

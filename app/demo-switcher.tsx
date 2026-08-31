@@ -27,7 +27,7 @@ const demos = [
     id: "reports" as const,
     href: "/",
     number: "03",
-    title: "Distributing Personal Components",
+    title: "Personal Components",
     description: "See how a familiar component can be transformed around you",
   },
 ];

@@ -127,7 +127,7 @@ const CURATE_RECOMMENDATION_SCHEMA = {
     headline: { type: "string", minLength: 1, maxLength: 90 },
     summary: { type: "string", minLength: 1, maxLength: 240, description: "Overall editorial rationale shown above the results." },
     featured: {
-      type: "array", maxItems: 6,
+      type: "array", minItems: 1, maxItems: 6, description: "Games rendered in the prominent “Top picks” section. Cardinality is meaningful: one item represents a single winner; multiple items represent a shortlist or co-equal picks.",
       items: {
         type: "object", additionalProperties: false,
         properties: {
@@ -138,7 +138,7 @@ const CURATE_RECOMMENDATION_SCHEMA = {
         required: ["appId", "badge", "reason"],
       },
     },
-    orderedAppIds: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true, items: { type: "integer", minimum: 1 } },
+    orderedAppIds: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true, description: "Editorial result order. When featured contains one decisive winner, that app ID must be first; keep supporting alternatives after it.", items: { type: "integer", minimum: 1 } },
   },
   required: ["recommendationId", "headline", "summary", "featured", "orderedAppIds"],
 };
@@ -388,7 +388,9 @@ function normalizeCuration(input: Record<string, unknown>, recommendation: Pendi
   const invalidIds = [...new Set(allIds.filter((id) => !allowed.has(id)))];
   if (invalidIds.length) throw new Error("Curation can use only app IDs returned by the original recommendation set.");
   if (!orderedAppIds.length || new Set(orderedAppIds).size !== orderedAppIds.length) throw new Error("orderedAppIds must contain at least one unique app ID from the recommendation set.");
+  if (!featured.length) throw new Error("Curation requires at least one featured game.");
   if (new Set(featured.map((item) => item.appId)).size !== featured.length) throw new Error("Each featured app ID may appear only once.");
+  if (featured.length === 1 && orderedAppIds[0] !== featured[0].appId) throw new Error("A single featured winner must be first in orderedAppIds.");
   const headline = cleanText(input.headline, "", 90);
   const summary = cleanText(input.summary, "", 240);
   if (!headline || !summary) throw new Error("Curation requires a headline and overall summary.");
@@ -812,7 +814,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "curate_storefront_results",
-        description: "Stage editorial curation for one recommend_storefront result set without retrieving new games or changing the visible UI. Adds a headline, overall rationale, featured badges, per-game Why it fits reasons, and ordering. Every app ID is validated against the original recommendation set.",
+        description: "Stage editorial curation for one recommendation set. The visible storefront must match the assistant’s stated recommendation. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only when the assistant explicitly presents a shortlist, several equal options, or category winners. Do not turn supporting alternatives into co-equal featured recommendations when a single winner was stated. Give every featured game a badge and a Why it fits reason that reflects its role. This tool does not retrieve new games or change the visible UI, and every app ID is validated against the original recommendation set.",
         inputSchema: CURATE_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {

@@ -19,6 +19,34 @@ function ConnectionSignal({ unavailable = false }: { unavailable?: boolean }) {
   </div>;
 }
 
+function DashboardBlueprint() {
+  return <div className="audience-dashboard-blueprint" aria-hidden="true">
+    <svg viewBox="0 0 1000 620" preserveAspectRatio="none">
+      <path d="M150 150 C 255 150, 270 238, 405 250" />
+      <path d="M850 138 C 742 138, 724 220, 595 250" />
+      <path d="M148 486 C 275 486, 286 376, 420 356" />
+      <path d="M852 476 C 727 476, 710 382, 580 356" />
+    </svg>
+    <span className="audience-blueprint-card card-signal">
+      <i className="audience-blueprint-label" />
+      <i className="audience-blueprint-value" />
+      <i className="audience-blueprint-rule" />
+    </span>
+    <span className="audience-blueprint-card card-trend">
+      <i className="audience-blueprint-label" />
+      <i className="audience-blueprint-chart"><b /><b /><b /><b /></i>
+    </span>
+    <span className="audience-blueprint-card card-table">
+      <i /><i /><i />
+    </span>
+    <span className="audience-blueprint-card card-action">
+      <i className="audience-blueprint-label" />
+      <i className="audience-blueprint-copy" />
+      <i className="audience-blueprint-copy short" />
+    </span>
+  </div>;
+}
+
 function timeGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -41,6 +69,7 @@ export default function AudienceOnboarding({ stage, audience, connectionStatus }
 
   if (stage === "audience_required" && !audienceReady) {
     return <div className="audience-onboarding audience-invitation">
+      <DashboardBlueprint />
       {connectionStatus === "checking" ? <section className="audience-connecting" role="status" aria-live="polite" aria-labelledby="audience-brief-title">
         <ConnectionSignal />
         <p id="audience-brief-title">Connecting…</p>
@@ -59,6 +88,7 @@ export default function AudienceOnboarding({ stage, audience, connectionStatus }
 
   if (proposalRequired) {
     return <div className="audience-onboarding audience-invitation">
+      <DashboardBlueprint />
       <section className="audience-invitation-copy" role="status" aria-live="polite" aria-labelledby="audience-brief-title">
         <h3 id="audience-brief-title">You&rsquo;re almost there, {audience.firstName}.</h3>
         <p>We&rsquo;re just waiting for your browser to submit the final plan.</p>

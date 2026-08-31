@@ -10,24 +10,25 @@ export function webMcpStatusLabel(status: WebMcpStatus) {
 
 const demos = [
   {
-    id: "reports" as const,
-    href: "/",
+    id: "store" as const,
+    href: "/store",
     number: "01",
-    title: "Data Table Demo",
-    description: "See how a familiar component can be transformed around you",
+    title: "A Personal Store",
+    description: "Let your intent reshape how a catalog is browsed",
   },
   {
     id: "builder" as const,
     href: "/builder",
     number: "02",
-    title: "Dashboard Demo",
+    title: "A Personal Homepage",
     description: "Create an entire personal dashboard, tailored to your role",
-  },  {
-    id: "store" as const,
-    href: "/store",
+  },
+  {
+    id: "reports" as const,
+    href: "/",
     number: "03",
-    title: "Storefront Demo",
-    description: "Let your intent reshape how a catalog is browsed",
+    title: "Distributing Personal Components",
+    description: "See how a familiar component can be transformed around you",
   },
 ];
 

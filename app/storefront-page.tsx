@@ -996,7 +996,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       </form> : null}
 
       {presentation ? <section className={"result-briefing mode-" + presentation.mode} aria-labelledby="result-briefing-title">
-        <div><span>Composed by your browser</span><h2 id="result-briefing-title">{presentation.title}</h2><p>{presentation.explanation}</p></div>
+        <div><h2 id="result-briefing-title">{presentation.title}</h2><p>{presentation.explanation}</p></div>
         <div className="briefing-recipe"><b>{presentation.mode}</b>{presentation.ranking.length ? <span>{presentation.ranking.map((factor) => Math.round(factor.weight * 100) + "% " + (factor.label || fieldLabel(factor.field))).join(" · ")}</span> : <span>{highlights.length ? highlights.map((field) => field === "publisher" ? "publisher" : fieldLabel(field as StorefrontRankingField)).join(" · ") : "Visual discovery"}</span>}{presentation.excludeOwned && ownedExclusions.length ? <span>{ownedExclusions.length} owned games excluded</span> : null}<button type="button" onClick={clearSearch}><span aria-hidden="true">×</span> Clear personalized search</button></div>
       </section> : null}
 

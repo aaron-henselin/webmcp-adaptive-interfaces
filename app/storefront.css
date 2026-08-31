@@ -53,8 +53,7 @@
 .result-briefing { position: relative; min-height: 146px; padding: 26px 30px; display: grid; grid-template-columns: minmax(0,1fr) minmax(240px,420px); align-items: center; gap: 30px; overflow: hidden; color: #eaf4f8; border-bottom: 1px solid rgba(102,192,244,.27); background: linear-gradient(112deg, #133148, #175274 62%, #1f6d8e); }
 .result-briefing::after { content: ""; position: absolute; right: -70px; top: -120px; width: 360px; height: 360px; border: 1px solid rgba(255,255,255,.13); border-radius: 50%; box-shadow: 0 0 0 36px rgba(255,255,255,.025), 0 0 0 76px rgba(255,255,255,.018); }
 .result-briefing > div { position: relative; z-index: 2; }
-.result-briefing > div:first-child > span { color: #93d8f7; font: 650 9px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
-.result-briefing h2 { margin: 9px 0 0; color: white; font-size: clamp(25px,3vw,38px); font-weight: 620; letter-spacing: -.04em; }
+.result-briefing h2 { margin: 0; color: white; font-size: clamp(25px,3vw,38px); font-weight: 620; letter-spacing: -.04em; }
 .result-briefing p { max-width: 720px; margin: 9px 0 0; color: #c3d8e3; font-size: 12px; line-height: 1.55; }
 .briefing-recipe { justify-self: end; min-width: 240px; padding: 15px 17px; display: grid; gap: 8px; border: 1px solid rgba(182,224,244,.25); border-radius: 10px; background: rgba(7,24,35,.24); }
 .briefing-recipe b { color: #8ce1bd; font: 650 10px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }

@@ -22,6 +22,11 @@ const FACET_PROMPTS = [
   { label: "Playtime", prompt: "Add a facet for average playtime with short, medium, and long bands." },
   { label: "Release", prompt: "Add a facet for release year that separates new, recent, and classic games." },
 ] as const;
+const STORE_PROMPTS = [
+  { label: "Set a vibe", prompt: "Find me a cozy game I can finish in a weekend." },
+  { label: "Play together", prompt: "Show me a great co-op game under $20." },
+  { label: "Pick one", prompt: "Recommend one strategy game and explain why it fits." },
+] as const;
 
 type LayoutMode = typeof LAYOUTS[number];
 type SortKey = typeof SORTS[number];
@@ -449,6 +454,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const [customFacets, setCustomFacets] = useState<CustomFacet[]>([]);
   const [selectedCustomBands, setSelectedCustomBands] = useState<Record<string, string>>({});
   const [copiedFacetPrompt, setCopiedFacetPrompt] = useState<string | null>(null);
+  const [copiedStorePrompt, setCopiedStorePrompt] = useState<string | null>(null);
   const [library, setLibrary] = useState<Set<number>>(new Set());
   const [addingId, setAddingId] = useState<number | null>(null);
   const customFacetsRef = useRef<CustomFacet[]>([]);
@@ -543,6 +549,13 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     void navigator.clipboard.writeText(prompt).then(() => {
       setCopiedFacetPrompt(prompt);
       timersRef.current.push(window.setTimeout(() => setCopiedFacetPrompt(null), 1600));
+    });
+  }, []);
+
+  const copyStorePrompt = useCallback((prompt: string) => {
+    void navigator.clipboard.writeText(prompt).then(() => {
+      setCopiedStorePrompt(prompt);
+      timersRef.current.push(window.setTimeout(() => setCopiedStorePrompt(null), 1600));
     });
   }, []);
 
@@ -976,12 +989,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   return <><DemoSwitcher active="store" /><main className="storefront-shell">
     <section className="storefront" aria-label="Steam storefront">
       {!presentation ? <form className="storefront-search" role="search" onSubmit={(event) => event.preventDefault()}>
-        <label><span aria-hidden="true">⌕</span><span className="sr-only">Search the store</span><input value={search} onChange={(event) => updateTextSearch(event.target.value)} placeholder="Search games, studios, genres, or tags" /></label>
-        <select aria-label="Sort games" value={sort} onChange={(event) => { setSort(event.target.value as SortKey); setDirection(event.target.value === "title" ? "asc" : "desc"); setPage(0); }}>
-          <option value="ownersMax">Most popular</option><option value="positiveRatio">Best reviewed</option><option value="reviewCount">Most reviewed</option><option value="ccu">Most active</option><option value="releaseYear">Newest</option><option value="priceCents">Price</option><option value="title">Title</option>
-        </select>
-        <button type="button" className="storefront-clear" onClick={clearSearch} disabled={!activeFilterCount && !presentation}>Clear</button>
-        <div className="storefront-browser-prompt"><span>or</span><p><b>Ask your browser</b> Try saying “Find me a co-op game under $20.”</p></div>
+        <section className="storefront-browser-hero" aria-labelledby="storefront-browser-title"><div className="storefront-browser-copy"><span><i aria-hidden="true" /> Browser-first discovery</span><h2 id="storefront-browser-title">Tell your browser what sounds good.</h2><p>Describe a mood, a budget, who you&apos;re playing with—or simply ask for one great pick. Your browser can search, rank, and shape the store around you.</p></div><div className="storefront-prompt-starters" aria-label="Prompt ideas">{STORE_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyStorePrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small aria-live="polite">{copiedStorePrompt === item.prompt ? "Copied ✓" : "Copy to ask ↗"}</small></button>)}</div></section>
+        <div className="storefront-manual-divider"><span>or</span><b>Search manually</b></div>
+        <div className="storefront-manual-search"><label><span aria-hidden="true">⌕</span><span className="sr-only">Search the store</span><input value={search} onChange={(event) => updateTextSearch(event.target.value)} placeholder="Search games, studios, genres, or tags" /></label><select aria-label="Sort games" value={sort} onChange={(event) => { setSort(event.target.value as SortKey); setDirection(event.target.value === "title" ? "asc" : "desc"); setPage(0); }}><option value="ownersMax">Most popular</option><option value="positiveRatio">Best reviewed</option><option value="reviewCount">Most reviewed</option><option value="ccu">Most active</option><option value="releaseYear">Newest</option><option value="priceCents">Price</option><option value="title">Title</option></select><button type="button" className="storefront-clear" onClick={clearSearch} disabled={!activeFilterCount && !presentation}>Clear</button></div>
       </form> : null}
 
       {presentation ? <section className={"result-briefing mode-" + presentation.mode} aria-labelledby="result-briefing-title">

@@ -21,9 +21,7 @@
 .storefront-browser-hero::before { content: ""; position: absolute; z-index: -1; right: -110px; top: -190px; width: 430px; height: 430px; border: 1px solid rgba(151,229,255,.16); border-radius: 50%; box-shadow: 0 0 0 43px rgba(112,224,184,.035),0 0 0 94px rgba(171,139,255,.035); }
 .storefront-browser-hero::after { content: ""; position: absolute; z-index: -1; inset: 0; opacity: .16; background-image: radial-gradient(circle,rgba(186,235,255,.9) 0 1px,transparent 1.5px); background-position: 12px 9px; background-size: 62px 62px; mask-image: linear-gradient(90deg,black,transparent 48%); }
 .storefront-browser-copy { position: relative; min-width: 0; }
-.storefront-browser-copy > span { display: inline-flex; align-items: center; gap: 9px; color: #8fe4ff; font: 700 9px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .11em; text-transform: uppercase; }
-.storefront-browser-copy > span i { width: 8px; height: 8px; border-radius: 50%; background: #7ce3b5; box-shadow: 0 0 0 5px rgba(124,227,181,.12),0 0 18px rgba(124,227,181,.8); }
-.storefront-browser-copy h2 { max-width: 520px; margin: 12px 0 0; color: white; font-size: clamp(26px,3.2vw,43px); font-weight: 640; line-height: 1.02; letter-spacing: -.045em; }
+.storefront-browser-copy h2 { max-width: 520px; margin: 0; color: white; font-size: clamp(26px,3.2vw,43px); font-weight: 640; line-height: 1.02; letter-spacing: -.045em; }
 .storefront-browser-copy p { max-width: 550px; margin: 13px 0 0; color: #c7dce7; font-size: 11px; line-height: 1.6; }
 .storefront-prompt-starters { position: relative; display: grid; gap: 8px; }
 .storefront-prompt-starters button { position: relative; min-height: 58px; padding: 10px 13px 10px 17px; display: grid; grid-template-columns: 92px minmax(0,1fr) auto; align-items: center; gap: 12px; overflow: hidden; border: 1px solid rgba(187,230,248,.24); border-radius: 9px; color: #eefaff; background: rgba(5,26,40,.34); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); text-align: left; cursor: pointer; transition: transform .16s ease,border-color .16s ease,background .16s ease; backdrop-filter: blur(10px); }

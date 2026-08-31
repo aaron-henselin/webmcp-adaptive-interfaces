@@ -22,7 +22,6 @@
 .storefront-browser-hero::after { content: ""; position: absolute; z-index: -1; inset: 0; opacity: .16; background-image: radial-gradient(circle,rgba(186,235,255,.9) 0 1px,transparent 1.5px); background-position: 12px 9px; background-size: 62px 62px; mask-image: linear-gradient(90deg,black,transparent 48%); }
 .storefront-browser-copy { position: relative; min-width: 0; }
 .storefront-browser-copy h2 { max-width: 520px; margin: 0; color: white; font-size: clamp(26px,3.2vw,43px); font-weight: 640; line-height: 1.02; letter-spacing: -.045em; }
-.storefront-browser-copy p { max-width: 550px; margin: 13px 0 0; color: #c7dce7; font-size: 11px; line-height: 1.6; }
 @keyframes store-prompt-arrive { from { opacity: 0; transform: translate3d(14px,0,0) scale(.985); } to { opacity: 1; transform: translate3d(0,0,0) scale(1); } }
 @keyframes store-prompt-glint { 0% { opacity: 0; transform: translate3d(-220%,0,0) skewX(-18deg); } 28% { opacity: .72; } 100% { opacity: 0; transform: translate3d(560%,0,0) skewX(-18deg); } }
 .storefront-prompt-starters { position: relative; display: grid; gap: 8px; }

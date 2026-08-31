@@ -23,6 +23,10 @@
 .storefront-search select, .storefront-clear { height: 47px; padding: 0 14px; border: 1px solid #bdcad2; border-radius: 0; color: #2d3f4b; background: white; font-size: 12px; }
 .storefront-clear { min-width: 82px; cursor: pointer; }
 .storefront-clear:disabled { color: #9da9b0; cursor: default; }
+.storefront-browser-prompt { grid-column: 1 / -1; min-height: 30px; padding: 2px 4px 0; display: flex; align-items: center; gap: 10px; color: #687983; }
+.storefront-browser-prompt > span { width: 28px; height: 20px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #c9d7de; border-radius: 999px; color: #6b7f8a; background: rgba(255,255,255,.72); font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.storefront-browser-prompt p { margin: 0; font-size: 10px; line-height: 1.4; }
+.storefront-browser-prompt b { margin-right: 5px; color: #286b8a; font-weight: 680; }
 
 .result-briefing { position: relative; min-height: 146px; padding: 26px 30px; display: grid; grid-template-columns: minmax(0,1fr) minmax(240px,420px); align-items: center; gap: 30px; overflow: hidden; color: #eaf4f8; border-bottom: 1px solid rgba(102,192,244,.27); background: linear-gradient(112deg, #133148, #175274 62%, #1f6d8e); }
 .result-briefing::after { content: ""; position: absolute; right: -70px; top: -120px; width: 360px; height: 360px; border: 1px solid rgba(255,255,255,.13); border-radius: 50%; box-shadow: 0 0 0 36px rgba(255,255,255,.025), 0 0 0 76px rgba(255,255,255,.018); }
@@ -58,9 +62,25 @@
 .custom-facet { background: rgba(102,192,244,.045); }
 .custom-facet legend button { width: 24px; height: 24px; border: 0; color: #7d8a92; background: transparent; font-size: 16px; cursor: pointer; }
 .custom-facet > small { margin-top: 9px; display: block; color: #89969e; font-size: 8px; line-height: 1.4; }
-.facet-invitation { margin: 15px; padding: 14px; border: 1px dashed #aebfc8; border-radius: 8px; background: rgba(255,255,255,.4); }
-.facet-invitation span { color: #367c9e; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
-.facet-invitation p { margin: 8px 0 0; color: #6f7e87; font-size: 9px; line-height: 1.5; }
+.facet-add { position: relative; z-index: 12; margin: 15px; }
+.facet-add > summary { min-height: 38px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; border: 1px dashed #9eb8c5; border-radius: 8px; color: #285f79; background: rgba(255,255,255,.5); font-size: 10px; font-weight: 680; cursor: pointer; transition: color .16s ease,border-color .16s ease,background .16s ease; }
+.facet-add > summary::-webkit-details-marker { display: none; }
+.facet-add > summary:hover, .facet-add[open] > summary { color: #16455c; border-color: #61a6c6; background: white; }
+.facet-add > summary:focus-visible { outline: 3px solid rgba(22,119,168,.26); outline-offset: 2px; }
+.facet-add > summary span { color: #3187ad; font: 700 17px/1 "Cascadia Mono", ui-monospace, monospace; }
+.facet-add[open] > summary span { transform: rotate(45deg); }
+.facet-prompt-menu { position: absolute; z-index: 30; top: calc(100% + 9px); left: 0; width: 380px; max-width: calc(100vw - 44px); overflow: hidden; border: 1px solid #b8ccd6; border-radius: 12px; background: rgba(255,255,255,.98); box-shadow: 0 22px 55px rgba(22,48,63,.24),0 4px 12px rgba(22,48,63,.08); backdrop-filter: blur(18px); }
+.facet-prompt-menu::before { content: ""; position: absolute; top: -7px; left: 24px; width: 12px; height: 12px; transform: rotate(45deg); border-top: 1px solid #b8ccd6; border-left: 1px solid #b8ccd6; background: white; }
+.facet-prompt-menu header { padding: 17px 18px 13px; border-bottom: 1px solid #e0e8ec; background: linear-gradient(120deg,#f5fbfd,#faf7ff); }
+.facet-prompt-menu header > span { color: #287a9d; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .11em; text-transform: uppercase; }
+.facet-prompt-menu h2 { margin: 7px 0 0; color: #1d3541; font-size: 20px; font-weight: 670; letter-spacing: -.025em; }
+.facet-prompt-menu header p { margin: 5px 0 0; color: #71818a; font-size: 9px; line-height: 1.45; }
+.facet-prompt-menu > div { padding: 9px; display: grid; gap: 6px; }
+.facet-prompt-menu button { min-height: 62px; padding: 10px 11px; display: grid; grid-template-columns: 62px minmax(0,1fr) auto; align-items: center; gap: 10px; border: 1px solid transparent; border-radius: 8px; color: #304854; background: #f7fafb; text-align: left; cursor: pointer; }
+.facet-prompt-menu button:hover { border-color: #bad5e1; background: #f0f8fb; }
+.facet-prompt-menu button > span { color: #287a9d; font: 700 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.facet-prompt-menu button b { font-size: 10px; font-weight: 600; line-height: 1.4; }
+.facet-prompt-menu button small { color: #6d7e87; font-size: 8px; white-space: nowrap; }
 
 .storefront-results { min-width: 0; background: #f8fafb; }
 .storefront-results-bar { min-height: 70px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #d9e1e5; background: white; }
@@ -238,11 +258,13 @@
   .storefront-search { grid-template-columns: 1fr auto; padding: 10px; }
   .storefront-search label { grid-column: 1 / -1; }
   .storefront-search select { min-width: 0; }
+  .storefront-browser-prompt { align-items: flex-start; }
   .result-briefing { padding: 22px; }
   .storefront-body { display: block; }
   .storefront-facets { min-height: 0; border-right: 0; border-bottom: 1px solid #d3dde2; }
   .storefront-facets fieldset { padding: 13px 15px; }
   .facet-chips { max-height: 58px; overflow: hidden; }
+  .facet-prompt-menu { width: calc(100vw - 50px); }
   .store-featured, .store-featured.is-single { padding: 14px 10px 9px; }
   .store-featured-card, .store-featured-card.is-best-match { grid-template-columns: 1fr; }
   .store-featured-card .store-art { min-height: 0; aspect-ratio: 460/215; }
@@ -267,6 +289,6 @@
   .store-pagination { padding-block: 12px; align-items: flex-start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .store-card, .store-art::after, .store-buy { transition: none; }
+  .store-card, .store-art::after, .store-buy, .facet-add > summary { transition: none; }
   .storefront-demo-host::before, .storefront-demo-host::after, .store-buy.is-adding, .store-skeleton-block, .store-best-signal i { animation: none; }
 }

@@ -17,6 +17,11 @@ const INTENT_FIELDS = ["intentFit", "tagCoverage"] as const;
 const RANKING_FIELDS: StorefrontRankingField[] = [...INTENT_FIELDS, ...NUMERIC_FIELDS];
 const HIGHLIGHT_FIELDS = ["intentFit", "tagCoverage", "positiveRatio", "reviewCount", "ownersMax", "ccu", "releaseYear", "averageForever", "publisher"] as const;
 const SKELETON_ITEMS = Array.from({ length: PAGE_SIZE }, (_, index) => index);
+const FACET_PROMPTS = [
+  { label: "Activity", prompt: "Add a facet for active players with useful bands." },
+  { label: "Playtime", prompt: "Add a facet for average playtime with short, medium, and long bands." },
+  { label: "Release", prompt: "Add a facet for release year that separates new, recent, and classic games." },
+] as const;
 
 type LayoutMode = typeof LAYOUTS[number];
 type SortKey = typeof SORTS[number];
@@ -443,6 +448,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const [renderRequestVersion, setRenderRequestVersion] = useState(0);
   const [customFacets, setCustomFacets] = useState<CustomFacet[]>([]);
   const [selectedCustomBands, setSelectedCustomBands] = useState<Record<string, string>>({});
+  const [copiedFacetPrompt, setCopiedFacetPrompt] = useState<string | null>(null);
   const [library, setLibrary] = useState<Set<number>>(new Set());
   const [addingId, setAddingId] = useState<number | null>(null);
   const customFacetsRef = useRef<CustomFacet[]>([]);
@@ -532,6 +538,13 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   }, [requestKey]);
 
   useEffect(() => () => timersRef.current.forEach((timer) => window.clearTimeout(timer)), []);
+
+  const copyFacetPrompt = useCallback((prompt: string) => {
+    void navigator.clipboard.writeText(prompt).then(() => {
+      setCopiedFacetPrompt(prompt);
+      timersRef.current.push(window.setTimeout(() => setCopiedFacetPrompt(null), 1600));
+    });
+  }, []);
 
   const clearSearch = useCallback(() => {
     setSearch(""); setPriceBand("All prices"); setGenre(""); setTag(""); setMinPositiveRatio(undefined); setMinReviewCount(undefined);
@@ -968,6 +981,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           <option value="ownersMax">Most popular</option><option value="positiveRatio">Best reviewed</option><option value="reviewCount">Most reviewed</option><option value="ccu">Most active</option><option value="releaseYear">Newest</option><option value="priceCents">Price</option><option value="title">Title</option>
         </select>
         <button type="button" className="storefront-clear" onClick={clearSearch} disabled={!activeFilterCount && !presentation}>Clear</button>
+        <div className="storefront-browser-prompt"><span>or</span><p><b>Ask your browser</b> Try saying “Find me a co-op game under $20.”</p></div>
       </form> : null}
 
       {presentation ? <section className={"result-briefing mode-" + presentation.mode} aria-labelledby="result-briefing-title">
@@ -979,11 +993,10 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         <aside className="storefront-facets" aria-label="Store filters">
           <div className="facet-heading"><div><span>Refine</span><b>{activeFilterCount || "All"} filters</b></div>{activeFilterCount ? <button type="button" onClick={clearSearch}>Reset</button> : null}</div>
           <fieldset><legend>Price</legend><select value={priceBand} onChange={(event) => { setPriceBand(event.target.value as (typeof PRICE_BANDS)[number]); setPage(0); }}>{PRICE_BANDS.map((band) => <option key={band}>{band}</option>)}</select></fieldset>
-          <fieldset><legend>Reviews</legend><div className="facet-options">{[{ label: "Any rating", value: undefined }, { label: "70%+ positive", value: .7 }, { label: "80%+ positive", value: .8 }, { label: "90%+ positive", value: .9 }, { label: "95%+ positive", value: .95 }].map((item) => <button type="button" className={minPositiveRatio === item.value ? "active" : ""} key={item.label} onClick={() => { setMinPositiveRatio(item.value); setPage(0); }}>{item.label}</button>)}</div></fieldset>
           <fieldset><legend>Genre</legend><select value={genre} onChange={(event) => { setGenre(event.target.value); setPage(0); }}><option value="">All genres</option>{(catalog?.facets.genres ?? []).slice(0, 28).map((item) => <option key={item.label} value={item.label}>{item.label}</option>)}</select></fieldset>
           <fieldset><legend>Popular tags</legend><div className="facet-chips">{(catalog?.facets.tags ?? []).slice(0, 9).map((item) => <button type="button" className={tag === item.label ? "active" : ""} key={item.label} onClick={() => { setTag((value) => value === item.label ? "" : item.label); setPage(0); }}>{item.label}</button>)}</div></fieldset>
-          {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}><legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => { setCustomFacets((items) => items.filter((item) => item.id !== facet.id)); setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); }}>×</button></legend><div className="facet-options"><button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>{facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>)}</div><small>{fieldLabel(facet.field)} · saved in this browser</small></fieldset>)}
-          {!customFacets.length ? <div className="facet-invitation"><span>Make it yours</span><p>Ask your browser to “add a facet for reviews” and define the bands you care about.</p></div> : null}
+          {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}><legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => removeFacet(facet.id)}>×</button></legend><div className="facet-options"><button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>{facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>)}</div><small>{fieldLabel(facet.field)} · saved in this browser</small></fieldset>)}
+          <details className="facet-add"><summary>Add a facet <span aria-hidden="true">+</span></summary><section className="facet-prompt-menu" role="dialog" aria-modal="false" aria-labelledby="facet-prompt-title"><header><span>Browser shortcut</span><h2 id="facet-prompt-title">You can say</h2><p>Your browser will build the bands and save the facet here.</p></header><div>{FACET_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyFacetPrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small>{copiedFacetPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</small></button>)}</div></section></details>
         </aside>
 
         <section className="storefront-results" aria-busy={loading} aria-live="polite">

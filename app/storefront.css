@@ -61,6 +61,7 @@
 .briefing-recipe button > span { color: #93d8f7; font-size: 16px; line-height: 1; }
 
 .storefront-body { display: grid; grid-template-columns: 244px minmax(0,1fr); align-items: start; }
+.storefront-body.is-curated { grid-template-columns: minmax(0,1fr); }
 .storefront-facets { min-height: 760px; align-self: stretch; border-right: 1px solid #d3dde2; background: #eef3f5; }
 .facet-heading { min-height: 70px; padding: 15px 17px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #d4dde2; }
 .facet-heading div { display: grid; gap: 4px; }

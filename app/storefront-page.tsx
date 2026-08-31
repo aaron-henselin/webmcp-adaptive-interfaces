@@ -25,7 +25,7 @@ const FACET_PROMPTS = [
 const STORE_PROMPTS = [
   { label: "Set a vibe", prompt: "Find me a cozy game I can finish in a weekend." },
   { label: "Play together", prompt: "Show me a great co-op game under $20." },
-  { label: "Pick one", prompt: "Recommend one strategy game and explain why it fits." },
+  { label: "Pick one", prompt: "Suggest my next great game" },
 ] as const;
 
 type LayoutMode = typeof LAYOUTS[number];

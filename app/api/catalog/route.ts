@@ -150,6 +150,7 @@ function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpres
   const priceBand = (params.get("priceBand") ?? "All prices").slice(0, 30);
   const genre = (params.get("genre") ?? "").slice(0, 80);
   const tag = (params.get("tag") ?? "").slice(0, 80);
+  const requiredTags = normalizedTextArray(params.get("requiredTags"), 8);
   const minPositiveRatio = boundedNumber(params.get("minPositiveRatio"), -1, -1, 1);
   const minReviewCount = boundedInteger(params.get("minReviewCount"), -1, -1, 10_000_000);
   const appIds = parseArray(params.get("appIds"))
@@ -197,6 +198,10 @@ function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpres
   if (tag) {
     clauses.push("EXISTS (SELECT 1 FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id AND t.name = ?)");
     values.push(tag);
+  }
+  for (const requiredTag of requiredTags) {
+    clauses.push("EXISTS (SELECT 1 FROM game_tags required_gt JOIN tags required_t ON required_t.id = required_gt.tag_id WHERE required_gt.app_id = g.app_id AND LOWER(required_t.name) = LOWER(?))");
+    values.push(requiredTag);
   }
   if (minPositiveRatio >= 0) {
     clauses.push("g.positive_ratio >= ?");

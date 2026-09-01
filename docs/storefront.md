@@ -18,10 +18,24 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 | `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | None |
 | `curate_storefront_results` | A validated editorial-curation receipt | Uses only public app IDs from the original recommendation set | None; stages headline, summary, featured badges, reasons, and ordering |
 | `apply_storefront_results` | A render-completion receipt with featured and visible app IDs | Reads no additional personal data | Changes only session-scoped filters, ranking, editorial presentation, and layout |
-| `save_storefront_facet` | The saved local facet | Reads no library data | Saves a removable browser preference |
+| `save_storefront_facet` | The saved numeric-band or catalog-tag facet | Reads no library data | Saves a removable browser preference |
 | `remove_storefront_facet` | The removed facet ID | Reads no library data | Removes one browser preference |
 
 The deprecated `get_storefront_library` and `search_storefront` tools are no longer registered.
+
+## Reusable facets
+
+`save_storefront_facet` accepts two explicit facet kinds. Numeric facets divide one measurable catalog field into at least two non-overlapping bands. Tag facets add an **Any** choice and one reusable catalog-tag filter. For example, “Add a facet so I can see what games are family friendly” maps to:
+
+```json
+{
+  "kind": "tag",
+  "label": "Family friendly",
+  "tag": "Family Friendly"
+}
+```
+
+Tag names are matched case-insensitively and saved with the catalog's canonical spelling. A Family Friendly tag reflects Steam catalog metadata; it is not an age rating or a guarantee that every player will consider the game suitable.
 
 ## Agent workflow
 

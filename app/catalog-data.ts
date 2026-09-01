@@ -58,6 +58,7 @@ export type CatalogPageOptions = {
   pageSize: number;
   genre?: string;
   tag?: string;
+  requiredTags?: string[];
   minPositiveRatio?: number;
   minReviewCount?: number;
   numericFilters?: StorefrontNumericFilter[];
@@ -117,6 +118,7 @@ export async function loadCatalogPage(options: CatalogPageOptions, signal?: Abor
   });
   if (options.genre) params.set("genre", options.genre);
   if (options.tag) params.set("tag", options.tag);
+  if (options.requiredTags?.length) params.set("requiredTags", JSON.stringify(options.requiredTags));
   if (options.minPositiveRatio !== undefined) params.set("minPositiveRatio", String(options.minPositiveRatio));
   if (options.minReviewCount !== undefined) params.set("minReviewCount", String(options.minReviewCount));
   if (options.numericFilters?.length) params.set("numericFilters", JSON.stringify(options.numericFilters));

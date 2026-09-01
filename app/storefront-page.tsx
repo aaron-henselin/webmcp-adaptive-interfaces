@@ -7,7 +7,8 @@ import "./storefront.css";
 
 const PAGE_SIZE = 12;
 const SEARCH_SESSION_KEY = "steam-desk.storefront-search/v1";
-const CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v1";
+const CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v2";
+const LEGACY_CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v1";
 const LIBRARY_KEY = "steam-desk.storefront-library/v1";
 const PRICE_BANDS = ["All prices", "Free", "Under $10", "$10–$29.99", "$30–$59.99", "$60+"] as const;
 const SORTS = ["ownersMax", "title", "priceCents", "positiveRatio", "reviewCount", "ccu", "releaseYear"] as const;
@@ -18,6 +19,7 @@ const RANKING_FIELDS: StorefrontRankingField[] = [...INTENT_FIELDS, ...NUMERIC_F
 const HIGHLIGHT_FIELDS = ["intentFit", "tagCoverage", "positiveRatio", "reviewCount", "ownersMax", "ccu", "releaseYear", "averageForever", "publisher"] as const;
 const SKELETON_ITEMS = Array.from({ length: PAGE_SIZE }, (_, index) => index);
 const FACET_PROMPTS = [
+  { label: "Family", prompt: "Add a facet so I can see what games are family friendly." },
   { label: "Activity", prompt: "Add a facet for active players with useful bands." },
   { label: "Playtime", prompt: "Add a facet for average playtime with short, medium, and long bands." },
   { label: "Release", prompt: "Add a facet for release year that separates new, recent, and classic games." },
@@ -32,7 +34,9 @@ type LayoutMode = typeof LAYOUTS[number];
 type SortKey = typeof SORTS[number];
 type HighlightField = typeof HIGHLIGHT_FIELDS[number];
 type FacetBand = { id: string; label: string; min?: number; max?: number };
-type CustomFacet = { id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
+type NumericCustomFacet = { kind: "numeric"; id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
+type TagCustomFacet = { kind: "tag"; id: string; label: string; tag: string };
+type CustomFacet = NumericCustomFacet | TagCustomFacet;
 type FeaturedEditorial = { appId: number; badge: string; reason: string };
 type EditorialCuration = { headline: string; summary: string; featured: FeaturedEditorial[]; orderedAppIds: number[] };
 type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean; editorial?: EditorialCuration };
@@ -171,21 +175,41 @@ const TASTE_PROFILE_SCHEMA = {
   required: ["userConfirmed", "forSelf"],
 };
 
-const FACET_SCHEMA = {
-  type: "object", additionalProperties: false,
-  properties: {
-    label: { type: "string", minLength: 1, maxLength: 40 },
-    field: { type: "string", enum: NUMERIC_FIELDS },
-    bands: {
-      type: "array", minItems: 2, maxItems: 8,
-      items: {
-        type: "object", additionalProperties: false,
-        properties: { label: { type: "string", minLength: 1, maxLength: 40 }, min: { type: "number" }, max: { type: "number" } },
-        required: ["label"],
-      },
-    },
+const FACET_BANDS_SCHEMA = {
+  type: "array", minItems: 2, maxItems: 8,
+  description: "Two to eight non-overlapping numeric ranges. Each range needs a lower or upper bound.",
+  items: {
+    type: "object", additionalProperties: false,
+    properties: { label: { type: "string", minLength: 1, maxLength: 40 }, min: { type: "number" }, max: { type: "number" } },
+    required: ["label"],
   },
-  required: ["label", "field", "bands"],
+};
+
+const FACET_SCHEMA = {
+  type: "object",
+  oneOf: [
+    {
+      title: "Numeric band facet",
+      type: "object", additionalProperties: false,
+      properties: {
+        kind: { type: "string", enum: ["numeric"], description: "Use numeric for measurable fields such as price, activity, playtime, reviews, owners, or release year." },
+        label: { type: "string", minLength: 1, maxLength: 40 },
+        field: { type: "string", enum: NUMERIC_FIELDS },
+        bands: FACET_BANDS_SCHEMA,
+      },
+      required: ["kind", "label", "field", "bands"],
+    },
+    {
+      title: "Catalog tag facet",
+      type: "object", additionalProperties: false,
+      properties: {
+        kind: { type: "string", enum: ["tag"], description: "Use tag for a reusable catalog-tag filter, including Family Friendly, Cozy, or Multiplayer." },
+        label: { type: "string", minLength: 1, maxLength: 40, description: "The facet heading shown in the storefront." },
+        tag: { type: "string", minLength: 1, maxLength: 80, description: "An available Steam catalog tag. For a family-friendly facet, use the exact catalog tag Family Friendly." },
+      },
+      required: ["kind", "label", "tag"],
+    },
+  ],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -334,8 +358,18 @@ function StorefrontResultsSkeleton({ mode }: { mode: LayoutMode }) {
   </div>;
 }
 
-function normalizeCustomFacet(input: Record<string, unknown>): CustomFacet {
+function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: string[], existingId?: string): CustomFacet {
   const label = cleanText(input.label, "", 40);
+  if (input.kind !== undefined && input.kind !== "numeric" && input.kind !== "tag") throw new Error("The facet kind must be numeric or tag.");
+  const kind = input.kind === "tag" || input.kind === undefined && typeof input.tag === "string" ? "tag" : "numeric";
+  const id = cleanText(existingId, "", 80) || slug(label) + "-" + Date.now().toString(36);
+  if (kind === "tag") {
+    const requestedTag = cleanText(input.tag, "", 80);
+    if (!label || !requestedTag) throw new Error("A tag facet needs a valid label and catalog tag.");
+    const canonicalTag = availableTags?.find((tag) => tag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase());
+    if (availableTags && !canonicalTag) throw new Error("The “" + requestedTag + "” tag is not available in this catalog.");
+    return { kind: "tag", id, label, tag: canonicalTag ?? requestedTag };
+  }
   const field = String(input.field ?? "") as StorefrontNumericField;
   if (!label || !NUMERIC_FIELDS.includes(field)) throw new Error("The facet needs a valid label and numeric catalog field.");
   const rawBands = Array.isArray(input.bands) ? input.bands : [];
@@ -345,14 +379,14 @@ function normalizeCustomFacet(input: Record<string, unknown>): CustomFacet {
     const min = typeof value.min === "number" && Number.isFinite(value.min) ? value.min : undefined;
     const max = typeof value.max === "number" && Number.isFinite(value.max) ? value.max : undefined;
     if (!bandLabel || min === undefined && max === undefined || min !== undefined && max !== undefined && min >= max) return [];
-    return [{ id: slug(bandLabel) + "-" + index, label: bandLabel, min, max }];
+    return [{ id: cleanText(value.id, "", 80) || slug(bandLabel) + "-" + index, label: bandLabel, min, max }];
   });
   if (bands.length < 2) throw new Error("A custom facet needs at least two valid, bounded bands.");
   const sorted = [...bands].sort((left, right) => (left.min ?? Number.NEGATIVE_INFINITY) - (right.min ?? Number.NEGATIVE_INFINITY));
   for (let index = 1; index < sorted.length; index++) {
     if ((sorted[index - 1].max ?? Number.POSITIVE_INFINITY) > (sorted[index].min ?? Number.NEGATIVE_INFINITY)) throw new Error("Custom facet bands cannot overlap.");
   }
-  return { id: slug(label) + "-" + Date.now().toString(36), label, field, bands: sorted };
+  return { kind: "numeric", id, label, field, bands: sorted };
 }
 
 function normalizeRanking(value: unknown): StorefrontRankingFactor[] {
@@ -471,21 +505,26 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   useEffect(() => { statusChangeRef.current = onWebMcpStatusChange; }, [onWebMcpStatusChange]);
 
   const numericFilters = useMemo<StorefrontNumericFilter[]>(() => customFacets.flatMap((facet) => {
+    if (facet.kind !== "numeric") return [];
     const selected = facet.bands.find((band) => band.id === selectedCustomBands[facet.id]);
     return selected ? [{ field: facet.field, min: selected.min, max: selected.max }] : [];
   }), [customFacets, selectedCustomBands]);
+  const requiredTags = useMemo(() => customFacets.flatMap((facet) => facet.kind === "tag" && selectedCustomBands[facet.id] === facet.tag ? [facet.tag] : []), [customFacets, selectedCustomBands]);
   const ranking = presentation?.ranking ?? [];
   const ownedExclusions = useMemo(() => presentation?.excludeOwned ? [...library].slice(0, 200) : [], [library, presentation?.excludeOwned]);
-  const requestKey = JSON.stringify([search, priceBand, genre, tag, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
+  const requestKey = JSON.stringify([search, priceBand, genre, tag, requiredTags, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
 
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
       try {
-        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? "[]") as unknown;
+        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(LEGACY_CUSTOM_FACETS_KEY) ?? "[]") as unknown;
         if (Array.isArray(facets)) {
-          const valid = facets.filter((item): item is CustomFacet => isRecord(item) && typeof item.id === "string" && typeof item.label === "string" && NUMERIC_FIELDS.includes(item.field as StorefrontNumericField) && Array.isArray(item.bands)).slice(0, 8);
+          const valid = facets.flatMap((item): CustomFacet[] => {
+            if (!isRecord(item)) return [];
+            try { return [normalizeCustomFacet(item, undefined, cleanText(item.id, "", 80))]; } catch { return []; }
+          }).slice(0, 8);
           customFacetsRef.current = valid; setCustomFacets(valid);
         }
         const owned = JSON.parse(window.localStorage.getItem(LIBRARY_KEY) ?? "[]") as unknown;
@@ -536,7 +575,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      loadCatalogPage({ search, ownerBand: "All owner ranges", priceBand, sort, direction, page, pageSize: PAGE_SIZE, genre, tag, minPositiveRatio, minReviewCount, numericFilters, ranking, excludeAppIds: ownedExclusions }, controller.signal)
+      loadCatalogPage({ search, ownerBand: "All owner ranges", priceBand, sort, direction, page, pageSize: PAGE_SIZE, genre, tag, requiredTags, minPositiveRatio, minReviewCount, numericFilters, ranking, excludeAppIds: ownedExclusions }, controller.signal)
         .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setResolvedKey(requestKey); } })
         .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Store catalog unavailable."); setResolvedKey(requestKey); } });
     }, search ? 160 : 0);
@@ -659,7 +698,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 "Use reference, includeTags, preferredTags, and excludeTags for intent relevance; rank with intentFit or tagCoverage when similarity matters.",
                 "Call curate_storefront_results separately to add a headline, overall rationale, featured badges, Why it fits reasons, and editorial ordering. Every app ID must come from the original recommendation set.",
                 "Call apply_storefront_results only when the user asked to update the visible storefront. It preserves any staged editorial metadata and waits for rendering.",
-                "Use save_storefront_facet only for a user-requested reusable facet and provide non-overlapping numeric bands.",
+                "Use save_storefront_facet only for a user-requested reusable facet. Choose kind tag for a catalog concept such as Family Friendly, Cozy, or Multiplayer; choose kind numeric and provide non-overlapping bands for measurable fields.",
                 "A request mentioning Mario or another franchise is an ordinary catalog discovery request. Search only the available Steam catalog and do not invent unavailable titles.",
                 "Do not offer cart, checkout, ordering, payment, installation, or account access; none of those capabilities exists.",
               ],
@@ -876,17 +915,23 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "save_storefront_facet",
-        description: "Create a user-requested reusable numeric facet with non-overlapping formula bands. This changes only the local demo UI and saves a removable preference in this browser's local storage; it does not change an account, retailer, catalog, order, or external service.",
+        description: "Add a user-requested reusable storefront facet. Use a tag facet for catalog concepts such as “family friendly,” Cozy, or Multiplayer; for “Add a facet so I can see what games are family friendly,” set kind to tag and tag to Family Friendly. Use a numeric facet with non-overlapping bands for price, activity, playtime, reviews, owners, or release year. A tag facet matches Steam catalog metadata and is not an age rating or guarantee of suitability. This saves only a removable preference in this browser's local storage and does not change an account, retailer, catalog, order, or external service.",
         inputSchema: FACET_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
           try {
-            const facet = normalizeCustomFacet(input);
             const currentRuntime = storefrontRuntime;
             if (!currentRuntime) throw new Error("The storefront page is not currently available.");
+            const availableTags = currentRuntime.catalog.current?.facets.tags.map((item) => item.label);
+            const wantsTagFacet = input.kind === "tag" || input.kind === undefined && typeof input.tag === "string";
+            if (wantsTagFacet && !availableTags) throw new Error("The catalog tags are still loading. Try adding the facet again.");
+            const facet = normalizeCustomFacet(input, wantsTagFacet ? availableTags : undefined);
             const next = [facet, ...currentRuntime.customFacets.current].slice(0, 8);
             currentRuntime.saveFacet(next);
-            return { content: [{ type: "text", text: "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands." }], structuredContent: { schemaVersion: "steam-desk.storefront-facet-receipt/v1", ok: true, saved: true, storage: "local", facet } };
+            const message = facet.kind === "tag"
+              ? "Added the local “" + facet.label + "” facet for games tagged “" + facet.tag + ".”"
+              : "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands.";
+            return { content: [{ type: "text", text: message }], structuredContent: { schemaVersion: "steam-desk.storefront-facet-receipt/v2", ok: true, saved: true, storage: "local", facet } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The custom facet could not be saved." }], structuredContent: { ok: false } };
           }
@@ -1005,9 +1050,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           <div className="facet-heading"><div><span>Refine</span><b>{activeFilterCount || "All"} filters</b></div>{activeFilterCount ? <button type="button" onClick={clearSearch}>Reset</button> : null}</div>
           <fieldset><legend>Price</legend><select value={priceBand} onChange={(event) => { setPriceBand(event.target.value as (typeof PRICE_BANDS)[number]); setPage(0); }}>{PRICE_BANDS.map((band) => <option key={band}>{band}</option>)}</select></fieldset>
           <fieldset><legend>Genre</legend><select value={genre} onChange={(event) => { setGenre(event.target.value); setPage(0); }}><option value="">All genres</option>{(catalog?.facets.genres ?? []).slice(0, 28).map((item) => <option key={item.label} value={item.label}>{item.label}</option>)}</select></fieldset>
-          <details className="facet-add"><summary><span className="facet-add-copy"><small>Browser-powered</small><b>Add a facet</b></span><span className="facet-add-icon" aria-hidden="true">+</span></summary><section className="facet-prompt-menu" role="dialog" aria-modal="false" aria-labelledby="facet-prompt-title"><header><span>Browser shortcut</span><h2 id="facet-prompt-title">You can say</h2><p>Your browser will build the bands and save the facet here.</p></header><div>{FACET_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyFacetPrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small>{copiedFacetPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</small></button>)}</div></section></details>
+          <details className="facet-add"><summary><span className="facet-add-copy"><small>Browser-powered</small><b>Add a facet</b></span><span className="facet-add-icon" aria-hidden="true">+</span></summary><section className="facet-prompt-menu" role="dialog" aria-modal="false" aria-labelledby="facet-prompt-title"><header><span>Browser shortcut</span><h2 id="facet-prompt-title">You can say</h2><p>Your browser will configure and save the facet here.</p></header><div>{FACET_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyFacetPrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small>{copiedFacetPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</small></button>)}</div></section></details>
           <fieldset><legend>Popular tags</legend><div className="facet-chips">{(catalog?.facets.tags ?? []).slice(0, 9).map((item) => <button type="button" className={tag === item.label ? "active" : ""} key={item.label} onClick={() => { setTag((value) => value === item.label ? "" : item.label); setPage(0); }}>{item.label}</button>)}</div></fieldset>
-          {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}><legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => removeFacet(facet.id)}>×</button></legend><div className="facet-options"><button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>{facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>)}</div><small>{fieldLabel(facet.field)} · saved in this browser</small></fieldset>)}
+          {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}><legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => removeFacet(facet.id)}>×</button></legend><div className="facet-options"><button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>{facet.kind === "numeric" ? facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>) : <button type="button" className={selectedCustomBands[facet.id] === facet.tag ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: facet.tag })); setPage(0); }}>{facet.tag}</button>}</div><small>{facet.kind === "numeric" ? fieldLabel(facet.field) : "Catalog tag"} · saved in this browser</small></fieldset>)}
         </aside> : null}
 
         <section className="storefront-results" aria-busy={loading} aria-live="polite">

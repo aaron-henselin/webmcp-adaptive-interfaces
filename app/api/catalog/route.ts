@@ -40,6 +40,35 @@ const NUMERIC_FIELDS = {
   releaseYear: "g.release_year",
 } as const;
 
+const ACTIVITY_BAND_SQL = `CASE
+  WHEN g.peak_ccu >= 100000 THEN '100K+ playing'
+  WHEN g.peak_ccu >= 10000 THEN '10K–99K playing'
+  WHEN g.peak_ccu >= 1000 THEN '1K–9.9K playing'
+  WHEN g.peak_ccu >= 100 THEN '100–999 playing'
+  WHEN g.peak_ccu > 0 THEN 'Under 100 playing'
+  ELSE 'No players reported'
+END`;
+
+const GENERIC_FILTER_OPERATORS = new Set(["equal", "notEqual", "greaterThan", "greaterOrEqual", "lessThan", "lessOrEqual", "in", "contains"]);
+const GENERIC_FILTER_FIELDS: Record<string, string> = {
+  id: "g.app_id", title: "g.name", owners: "g.owners", ownersMin: "g.owners_min", ownersMax: "g.owners_max",
+  priceCents: "g.price_cents", discountPercent: "g.discount_percent", positive: "g.positive", negative: "g.negative",
+  reviewCount: "g.review_count", positiveRatio: "g.positive_ratio", ccu: "g.peak_ccu", averageForever: "g.average_forever",
+  average2Weeks: "g.average_2weeks", medianForever: "g.median_forever", median2Weeks: "g.median_2weeks",
+  releaseDate: "g.release_date", releaseYear: "g.release_year", requiredAge: "g.required_age", dlcCount: "g.dlc_count",
+  metacriticScore: "g.metacritic_score", userScore: "g.user_score", achievements: "g.achievements",
+  recommendations: "g.recommendations", windows: "g.windows", mac: "g.mac", linux: "g.linux",
+  ownerBand: "g.owners", priceBand: PRICE_BAND_SQL, reviewBand: REVIEW_BAND_SQL, activityBand: ACTIVITY_BAND_SQL,
+};
+const RELATION_FILTER_FIELDS: Record<string, { from: string; value: string }> = {
+  developer: { from: "game_developers gf_j JOIN developers gf_d ON gf_d.id = gf_j.developer_id", value: "gf_d.name" },
+  publisher: { from: "game_publishers gf_j JOIN publishers gf_d ON gf_d.id = gf_j.publisher_id", value: "gf_d.name" },
+  genre: { from: "game_genres gf_j JOIN genres gf_d ON gf_d.id = gf_j.genre_id", value: "gf_d.name" },
+  tag: { from: "game_tags gf_j JOIN tags gf_d ON gf_d.id = gf_j.tag_id", value: "gf_d.name" },
+  category: { from: "game_categories gf_j JOIN categories gf_d ON gf_d.id = gf_j.category_id", value: "gf_d.name" },
+  language: { from: "game_languages gf_j JOIN languages gf_d ON gf_d.id = gf_j.language_id", value: "gf_d.name" },
+};
+
 const RANK_NORMALIZERS: Record<keyof typeof NUMERIC_FIELDS, string> = {
   positiveRatio: "COALESCE(g.positive_ratio, 0)",
   reviewCount: "MIN(CAST(g.review_count AS REAL) / 100000.0, 1)",
@@ -82,6 +111,58 @@ function normalizedTextArray(value: string | null, limit: number) {
     .filter(Boolean)
     .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
     .slice(0, limit);
+}
+
+function filterPrimitive(value: unknown): string | number | boolean | null | undefined {
+  return value === null || typeof value === "string" || typeof value === "number" && Number.isFinite(value) || typeof value === "boolean" ? value : undefined;
+}
+
+function genericScalarFilter(sqlField: string, operator: string, rawValue: unknown): SqlExpression {
+  if (operator === "contains") {
+    if (typeof rawValue !== "string" || !rawValue.trim()) throw new Error("contains filters require a non-empty string.");
+    return { sql: `INSTR(LOWER(CAST(${sqlField} AS TEXT)), LOWER(?)) > 0`, values: [rawValue.trim().slice(0, 120)] };
+  }
+  if (operator === "in") {
+    if (!Array.isArray(rawValue)) throw new Error("in filters require an array value.");
+    const members = rawValue.map(filterPrimitive).filter((item): item is string | number | boolean => item !== undefined && item !== null).slice(0, 20);
+    if (!members.length) throw new Error("in filters require at least one scalar value.");
+    return { sql: `${sqlField} IN (${members.map(() => "?").join(", ")})`, values: members.map((item) => typeof item === "boolean" ? Number(item) : item) };
+  }
+  if (Array.isArray(rawValue)) throw new Error(`${operator} filters require one scalar value.`);
+  const value = filterPrimitive(rawValue);
+  if (value === undefined) throw new Error("Filter values must be strings, finite numbers, booleans, null, or scalar arrays.");
+  if (value === null) {
+    if (operator !== "equal" && operator !== "notEqual") throw new Error("Only equal and notEqual can compare with null.");
+    return { sql: `${sqlField} IS ${operator === "notEqual" ? "NOT " : ""}NULL`, values: [] };
+  }
+  const operators: Record<string, string> = { equal: "=", notEqual: "!=", greaterThan: ">", greaterOrEqual: ">=", lessThan: "<", lessOrEqual: "<=" };
+  const sqlOperator = operators[operator];
+  if (!sqlOperator) throw new Error(`Unsupported filter operator: ${operator}.`);
+  return { sql: `${sqlField} ${sqlOperator} ?`, values: [typeof value === "boolean" ? Number(value) : value] };
+}
+
+function genericRelationFilter(relation: { from: string; value: string }, operator: string, rawValue: unknown): SqlExpression {
+  if (!["equal", "notEqual", "in", "contains"].includes(operator)) throw new Error("Dimension filters support equal, notEqual, in, and contains.");
+  const positiveOperator = operator === "notEqual" ? "equal" : operator;
+  const condition = genericScalarFilter(relation.value, positiveOperator, rawValue);
+  return {
+    sql: `${operator === "notEqual" ? "NOT " : ""}EXISTS (SELECT 1 FROM ${relation.from} WHERE gf_j.app_id = g.app_id AND ${condition.sql})`,
+    values: condition.values,
+  };
+}
+
+function compileGenericFilters(value: string | null): SqlExpression[] {
+  return parseArray(value).slice(0, 12).map((rawFilter) => {
+    if (!rawFilter || typeof rawFilter !== "object") throw new Error("Each catalog filter must be an object.");
+    const filter = rawFilter as Record<string, unknown>;
+    const field = String(filter.field ?? "");
+    const operator = String(filter.operator ?? "");
+    if (!GENERIC_FILTER_OPERATORS.has(operator)) throw new Error(`Unsupported filter operator: ${operator || "missing"}.`);
+    const relation = RELATION_FILTER_FIELDS[field];
+    const sqlField = GENERIC_FILTER_FIELDS[field];
+    if (!relation && !sqlField) throw new Error(`Unsupported catalog filter field: ${field || "missing"}.`);
+    return relation ? genericRelationFilter(relation, operator, filter.value) : genericScalarFilter(sqlField, operator, filter.value);
+  });
 }
 
 function tagMatchCountExpression(tags: string[]): SqlExpression {
@@ -227,6 +308,11 @@ function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpres
       clauses.push(`${sqlField} < ?`);
       values.push(boundedNumber(item.max, 0, -1_000_000_000, 1_000_000_000));
     }
+  }
+
+  for (const filter of compileGenericFilters(params.get("filters"))) {
+    clauses.push(filter.sql);
+    values.push(...filter.values);
   }
 
   return { sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", values };

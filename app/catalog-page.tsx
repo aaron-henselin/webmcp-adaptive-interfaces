@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CATALOG_ANALYTICS_BINDING_SCHEMA, CATALOG_FIELD_CATALOG, normalizeCatalogAnalyticsBinding, OWNER_BANDS, PRICE_BANDS, type CatalogAnalyticsBinding } from "./catalog-analytics";
-import { executeCatalogReport, loadCatalogPage, type CatalogGame, type CatalogPage } from "./catalog-data";
+import { executeCatalogReport, loadCatalogPage, type CatalogFilter, type CatalogFilterOperator, type CatalogFilterValue, type CatalogGame, type CatalogPage } from "./catalog-data";
 import { bindCatalogRowsToFigure } from "./catalog-visualization";
 import { createReportPresentationSchema, REPORT_MODE_CATALOG, REPORT_PRESENTATION_DESCRIPTION, reportPresentationShapeError } from "./report-presentation-schema";
 import { webMcpStatusLabel, type WebMcpStatus } from "./demo-switcher";
@@ -10,7 +10,7 @@ import { formatCompact, formatOwnerRange, formatPercent, formatPlaytime, formatP
 import { normalizePlotlyFigure, PlotlyCanvas, PLOTLY_TRACE_TYPES, renderPlotlyFigureToPng, type PlotlyFigure } from "./plotly-visualization";
 import { CatalogTableSkeleton } from "./loading-skeletons";
 
-type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "ccu";
+type SortKey = "ownersMax" | "title" | "priceCents" | "positiveRatio" | "reviewCount" | "ccu" | "releaseYear";
 type SortDirection = "asc" | "desc";
 type ValueFormat = "number" | "integer" | "compact" | "currencyCents" | "percent" | "minutes" | "year";
 type MetricSpec = { valueField: string; label: string; format: ValueFormat; context: string };
@@ -23,11 +23,21 @@ type ReportPresentation =
   | { mode: "mixed"; metric: MetricSpec; figure: PlotlyFigure };
 type SavedReport = { id: string; savedAt: string; title: string; description: string; presentation: ReportPresentation; binding: CatalogAnalyticsBinding };
 type OpenReport = { report: SavedReport; rows: Record<string, unknown>[]; figure?: PlotlyFigure };
+type AppliedCatalogFilter = CatalogFilter & { id: string; label: string };
+type CatalogSearchSnapshot = { query: string; ownerBand: string; priceBand: string; filters: AppliedCatalogFilter[]; sort: SortKey; direction: SortDirection };
+type PendingCatalogSearch = { key: string; resolve: (catalog: CatalogPage) => void; reject: (error: Error) => void; timeout: number };
 
 const PAGE_SIZE = 12;
 const MAX_SAVED_REPORTS = 8;
 const SAVED_REPORTS_KEY = "steam-desk:saved-reports:v5";
 const VALUE_FORMATS: ValueFormat[] = ["number", "integer", "compact", "currencyCents", "percent", "minutes", "year"];
+const SORT_KEYS: SortKey[] = ["ownersMax", "title", "priceCents", "positiveRatio", "reviewCount", "ccu", "releaseYear"];
+const CATALOG_FILTER_OPERATORS: CatalogFilterOperator[] = ["equal", "notEqual", "greaterThan", "greaterOrEqual", "lessThan", "lessOrEqual", "in", "contains"];
+const CATALOG_FILTER_FIELDS = CATALOG_FIELD_CATALOG.map((field) => field.name).filter((field) => field !== "tagWeight");
+const CATALOG_FILTER_FIELD_SET = new Set<string>(CATALOG_FILTER_FIELDS);
+const FILTER_OPERATOR_LABELS: Record<CatalogFilterOperator, string> = {
+  equal: "is", notEqual: "is not", greaterThan: ">", greaterOrEqual: "≥", lessThan: "<", lessOrEqual: "≤", in: "in", contains: "contains",
+};
 const coverMarks = ["◜", "◇", "◉", "⌁", "△", "✣", "⊙", "╱"];
 const ownerBandLabels = new Map(OWNER_BANDS.map((band) => {
   const [ownersMin, ownersMax] = band.split("..").map((value) => Number(value.replaceAll(",", "").trim()));
@@ -58,6 +68,29 @@ const REPORT_VISUALIZATION_SCHEMA = { type: "object", additionalProperties: fals
 const REPORT_METRIC_SCHEMA = { type: "object", additionalProperties: false, properties: { valueField: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 80 }, format: { type: "string", enum: VALUE_FORMATS, description: "Use year for calendar-year fields. releaseYear always renders as a year when this is omitted or set to a generic numeric format." }, context: { type: "string", maxLength: 180 } }, required: ["valueField", "label"] };
 const REPORT_COLUMN_SCHEMA = { type: "object", additionalProperties: false, properties: { field: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$" }, label: { type: "string", maxLength: 60 }, format: { type: "string", enum: VALUE_FORMATS, description: "Use year for calendar-year fields. releaseYear always renders as a year when this is omitted or set to a generic numeric format." } }, required: ["field", "label"] };
 const REPORT_PRESENTATION_SCHEMA = createReportPresentationSchema({ metric: REPORT_METRIC_SCHEMA, tableColumn: REPORT_COLUMN_SCHEMA, visualization: REPORT_VISUALIZATION_SCHEMA });
+const APPLY_CATALOG_SEARCH_SCHEMA = {
+  type: "object", additionalProperties: false,
+  properties: {
+    mode: { type: "string", enum: ["replace", "append"], default: "replace", description: "Replace the visible criteria, or append filters to the current visible search." },
+    query: { type: "string", maxLength: 120, description: "Optional full-text search across titles and indexed catalog metadata." },
+    filters: {
+      type: "array", maxItems: 12, description: "Any safe combination of scalar or dimension filters. Dimension fields are developer, publisher, genre, tag, category, and language.",
+      items: {
+        type: "object", additionalProperties: false,
+        properties: {
+          label: { type: "string", maxLength: 60, description: "Optional concise facet label shown in the UI." },
+          field: { type: "string", enum: CATALOG_FILTER_FIELDS },
+          operator: { type: "string", enum: CATALOG_FILTER_OPERATORS },
+          value: { description: "A string, finite number, boolean, null, or an array of scalar values for the in operator." },
+        },
+        required: ["field", "operator", "value"],
+      },
+    },
+    sort: { type: "string", enum: SORT_KEYS },
+    direction: { type: "string", enum: ["asc", "desc"] },
+  },
+  required: ["filters"],
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const text = (value: unknown, fallback: string, limit: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : fallback;
@@ -70,6 +103,34 @@ function metric(value: unknown): MetricSpec | null {
 
 function columns(value: unknown): TableColumn[] {
   return Array.isArray(value) ? value.flatMap((item): TableColumn[] => isRecord(item) && typeof item.field === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(item.field) ? [{ field: item.field, label: text(item.label, item.field, 60), format: valueFormat(item.format, item.field) }] : []).slice(0, 8) : [];
+}
+
+function catalogFilterValue(value: unknown): CatalogFilterValue | undefined {
+  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value)) return value;
+  if (!Array.isArray(value) || !value.length || value.length > 20) return undefined;
+  const members = value.filter((item): item is string | number | boolean => typeof item === "string" || typeof item === "boolean" || typeof item === "number" && Number.isFinite(item));
+  return members.length === value.length ? members : undefined;
+}
+
+function catalogFilterLabel(field: string, operator: CatalogFilterOperator, value: CatalogFilterValue) {
+  const rendered = Array.isArray(value) ? value.join(", ") : value === null ? "empty" : typeof value === "boolean" ? value ? "yes" : "no" : String(value);
+  return `${field} ${FILTER_OPERATOR_LABELS[operator]} ${rendered}`.slice(0, 80);
+}
+
+function normalizeCatalogFilters(value: unknown): AppliedCatalogFilter[] | null {
+  if (!Array.isArray(value) || value.length > 12) return null;
+  const normalized = value.flatMap((item, index): AppliedCatalogFilter[] => {
+    if (!isRecord(item) || typeof item.field !== "string" || !CATALOG_FILTER_FIELD_SET.has(item.field) || !CATALOG_FILTER_OPERATORS.includes(item.operator as CatalogFilterOperator)) return [];
+    const operator = item.operator as CatalogFilterOperator;
+    const filterValue = catalogFilterValue(item.value);
+    if (filterValue === undefined || operator === "in" && !Array.isArray(filterValue) || operator !== "in" && Array.isArray(filterValue) || operator === "contains" && typeof filterValue !== "string" || filterValue === null && !["equal", "notEqual"].includes(operator)) return [];
+    return [{
+      id: `${item.field}-${operator}-${index}-${crypto.randomUUID()}`,
+      label: text(item.label, catalogFilterLabel(item.field, operator, filterValue), 80),
+      field: item.field, operator, value: filterValue,
+    }];
+  });
+  return normalized.length === value.length ? normalized : null;
 }
 
 function createPresentation(input: Record<string, unknown>) {
@@ -146,6 +207,7 @@ export default function CatalogPage({ webMcpStatus, onWebMcpStatusChange }: { we
   const [search, setSearch] = useState("");
   const [ownerBand, setOwnerBand] = useState("All owner ranges");
   const [priceBand, setPriceBand] = useState("All prices");
+  const [catalogFilters, setCatalogFilters] = useState<AppliedCatalogFilter[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("ownersMax");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(0);
@@ -155,17 +217,35 @@ export default function CatalogPage({ webMcpStatus, onWebMcpStatusChange }: { we
   const [showPromptGuide, setShowPromptGuide] = useState(false);
   const savedReportsRef = useRef<SavedReport[]>([]);
   const reportsLoadedRef = useRef(false);
+  const catalogRef = useRef<CatalogPage | null>(null);
+  const resolvedCatalogKeyRef = useRef("");
+  const catalogSearchStateRef = useRef<CatalogSearchSnapshot>({ query: "", ownerBand: "All owner ranges", priceBand: "All prices", filters: [], sort: "ownersMax", direction: "desc" });
+  const pendingCatalogSearchRef = useRef<PendingCatalogSearch | null>(null);
   const reportRef = useRef<HTMLElement>(null);
   const suggestionMenuRef = useRef<HTMLDivElement>(null);
-  const catalogRequestKey = JSON.stringify([search, ownerBand, priceBand, sortKey, sortDirection, page]);
+  const catalogRequestKey = JSON.stringify([search, ownerBand, priceBand, sortKey, sortDirection, page, catalogFilters]);
+  catalogRef.current = catalog;
+  resolvedCatalogKeyRef.current = resolvedCatalogKey;
+  catalogSearchStateRef.current = { query: search, ownerBand, priceBand, filters: catalogFilters, sort: sortKey, direction: sortDirection };
   const catalogLoading = resolvedCatalogKey !== catalogRequestKey;
 
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      loadCatalogPage({ search, ownerBand, priceBand, sort: sortKey, direction: sortDirection, page, pageSize: PAGE_SIZE }, controller.signal)
-        .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setResolvedCatalogKey(catalogRequestKey); } })
-        .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Catalog unavailable."); setResolvedCatalogKey(catalogRequestKey); } });
+      loadCatalogPage({ search, ownerBand, priceBand, filters: catalogFilters, sort: sortKey, direction: sortDirection, page, pageSize: PAGE_SIZE }, controller.signal)
+        .then((value) => {
+          if (controller.signal.aborted) return;
+          setCatalog(value); setCatalogError(""); setResolvedCatalogKey(catalogRequestKey);
+          const pending = pendingCatalogSearchRef.current;
+          if (pending?.key === catalogRequestKey) { window.clearTimeout(pending.timeout); pendingCatalogSearchRef.current = null; pending.resolve(value); }
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          const failure = error instanceof Error ? error : new Error("Catalog unavailable.");
+          setCatalogError(failure.message); setResolvedCatalogKey(catalogRequestKey);
+          const pending = pendingCatalogSearchRef.current;
+          if (pending?.key === catalogRequestKey) { window.clearTimeout(pending.timeout); pendingCatalogSearchRef.current = null; pending.reject(failure); }
+        });
     }, search ? 180 : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
   // The serialized filters are the request identity.
@@ -238,8 +318,65 @@ export default function CatalogPage({ webMcpStatus, onWebMcpStatusChange }: { we
       return opened;
     };
 
+    const applyCatalogSearch = async (input: Record<string, unknown>) => {
+      const incoming = normalizeCatalogFilters(input.filters);
+      if (!incoming) throw new Error("Invalid catalog filters. Use only described fields, operators, and scalar values.");
+      const current = catalogSearchStateRef.current;
+      const append = input.mode === "append";
+      const combined = append ? [...current.filters, ...incoming] : incoming;
+      const seen = new Set<string>();
+      const nextFilters = combined.filter((filter) => {
+        const signature = JSON.stringify([filter.field, filter.operator, filter.value]);
+        if (seen.has(signature)) return false;
+        seen.add(signature);
+        return true;
+      }).slice(-12);
+      const nextSearch = typeof input.query === "string" ? input.query.trim().slice(0, 120) : append ? current.query : "";
+      const nextOwnerBand = append ? current.ownerBand : "All owner ranges";
+      const nextPriceBand = append ? current.priceBand : "All prices";
+      const nextSort = SORT_KEYS.includes(input.sort as SortKey) ? input.sort as SortKey : append ? current.sort : "ownersMax";
+      const nextDirection = input.direction === "asc" || input.direction === "desc" ? input.direction : append ? current.direction : nextSort === "title" ? "asc" : "desc";
+      const nextKey = JSON.stringify([nextSearch, nextOwnerBand, nextPriceBand, nextSort, nextDirection, 0, nextFilters]);
+      const alreadyRendered = resolvedCatalogKeyRef.current === nextKey ? catalogRef.current : null;
+
+      const previous = pendingCatalogSearchRef.current;
+      if (previous) { window.clearTimeout(previous.timeout); previous.reject(new Error("The visible catalog search was replaced by a newer request.")); pendingCatalogSearchRef.current = null; }
+
+      let rendered: Promise<CatalogPage>;
+      if (alreadyRendered) rendered = Promise.resolve(alreadyRendered);
+      else rendered = new Promise<CatalogPage>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          if (pendingCatalogSearchRef.current?.key === nextKey) pendingCatalogSearchRef.current = null;
+          reject(new Error("The catalog search timed out before the visible results finished updating."));
+        }, 30_000);
+        pendingCatalogSearchRef.current = { key: nextKey, resolve, reject, timeout };
+      });
+
+      setSearch(nextSearch); setOwnerBand(nextOwnerBand); setPriceBand(nextPriceBand); setCatalogFilters(nextFilters);
+      setSortKey(nextSort); setSortDirection(nextDirection); setPage(0); setOpenReport(null);
+      const result = await rendered;
+      return {
+        content: [{ type: "text", text: `Applied ${nextFilters.length} facet filter${nextFilters.length === 1 ? "" : "s"} to the visible catalog; ${result.query.total.toLocaleString()} games match.` }],
+        structuredContent: {
+          schemaVersion: "steam-desk.catalog-search/v1", ok: true, applied: true, persistence: "current browser session",
+          query: nextSearch, filters: nextFilters.map(({ label, field, operator, value }) => ({ label, field, operator, value })),
+          sort: nextSort, direction: nextDirection, total: result.query.total,
+        },
+      };
+    };
+
     const tools = [
-      { name: "describe_steam_catalog", description: "Describe the database-backed Steam catalog fields, filters, analytics operations, and presentation contract. Use before creating a report when field meanings or genre/tag expansion are unclear.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => ({ content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable catalog fields.` }], structuredContent: { schemaVersion: "steam-desk.datasource/v2", source: { name: "steam_catalog", label: "Steam catalog database", recordCount: catalogRecordCount }, fields: CATALOG_FIELD_CATALOG, reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, valueFormats: VALUE_FORMATS }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Route every data-derived request through create_report, even when it is phrased as a natural question and never mentions reports or saving.", "Use explode with genres, tags, categories, developers, publishers, or languages before grouping by an individual value.", "For tags, explode also provides tagWeight.", "Report results are capped at 2,000 rows and execute in the database.", REPORT_PRESENTATION_DESCRIPTION] } }) },
+      { name: "describe_steam_catalog", description: "Describe the database-backed Steam catalog fields, filters, analytics operations, and presentation contract. Use before creating a report when field meanings or genre/tag expansion are unclear.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => ({ content: [{ type: "text", text: `Described ${CATALOG_FIELD_CATALOG.length} reportable catalog fields.` }], structuredContent: { schemaVersion: "steam-desk.datasource/v2", source: { name: "steam_catalog", label: "Steam catalog database", recordCount: catalogRecordCount }, fields: CATALOG_FIELD_CATALOG, visibleSearch: catalogSearchStateRef.current, searchDefinition: APPLY_CATALOG_SEARCH_SCHEMA, reportDefinition: { data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, valueFormats: VALUE_FORMATS }, presentationModes: REPORT_MODE_CATALOG, guidance: ["Route every data-derived request through create_report, even when it is phrased as a natural question and never mentions reports or saving.", "Use explode with genres, tags, categories, developers, publishers, or languages before grouping by an individual value.", "For tags, explode also provides tagWeight.", "Report results are capped at 2,000 rows and execute in the database.", REPORT_PRESENTATION_DESCRIPTION] } }) },
+      {
+        name: "apply_catalog_search",
+        description: "Apply arbitrary, allowlisted facet filters to the visible catalog table. Filters may target any described scalar field or the developer, publisher, genre, tag, category, and language dimensions; combine up to 12 filters with AND semantics. Use in for one-of values and contains for case-insensitive text matching. Replace is the default; append preserves existing visible criteria. This changes only the current browser session, opens the raw-data view, resets pagination, and waits for the results to render.",
+        inputSchema: APPLY_CATALOG_SEARCH_SCHEMA,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          try { return await applyCatalogSearch(input); }
+          catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The catalog search could not be applied." }], structuredContent: { ok: false } }; }
+        },
+      },
       { name: "create_report", description: "Use for every request that asks for an answer, calculation, analysis, ranking, comparison, summary, table, chart, or narrative from Steam catalog data, even when the user does not say report or save. This is the reporting interface for all data-derived answers. Save exactly one presentation: metric, table, chart, narrative, or mixed. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Returns only a compact receipt.", inputSchema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 220 }, data: REPORT_DATA_SCHEMA, presentation: REPORT_PRESENTATION_SCHEMA, openInBrowser: { type: "boolean", default: true } }, required: ["title", "data", "presentation"] }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const opened = await createReport(input); return { content: [{ type: "text", text: `Created and saved “${opened.report.title}”.` }], structuredContent: { schemaVersion: "steam-desk.report-receipt/v3", ok: true, created: true, saved: true, browser: { opened: input.openInBrowser !== false }, report: { id: opened.report.id, title: opened.report.title, mode: opened.report.presentation.mode, rowCount: opened.rows.length } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report creation failed." }], structuredContent: { ok: false, retryable: false } }; } } },
       { name: "render_report", description: "Render an existing saved report as bounded Markdown or, for chart reports, a PNG.", inputSchema: { type: "object", additionalProperties: false, properties: { reportId: { type: "string", minLength: 1, maxLength: 128 }, renderMode: { type: "string", enum: ["auto", "markdown", "image"], default: "auto" } }, required: ["reportId"] }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: async (input: Record<string, unknown>) => { try { const report = savedReportsRef.current.find((item) => item.id === input.reportId); if (!report) throw new Error("Saved report not found."); const opened = await runReport(report); const imageMode = input.renderMode === "image" || input.renderMode !== "markdown" && Boolean(opened.figure); if (imageMode) { if (!opened.figure) throw new Error("Image rendering is available only for chart reports."); return { content: [{ type: "text", text: `Rendered “${report.title}” as a PNG.` }, { type: "image", data: await renderPlotlyFigureToPng(opened.figure), mimeType: "image/png" }], structuredContent: { ok: true, rendered: true, report: { id: report.id, title: report.title } } }; } return { content: [{ type: "text", text: markdownReport(opened) }], structuredContent: { ok: true, rendered: true, report: { id: report.id, title: report.title } } }; } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Report rendering failed." }] }; } } },
     ];
@@ -287,7 +424,7 @@ export default function CatalogPage({ webMcpStatus, onWebMcpStatusChange }: { we
         <footer><span>Updated from the catalog when this tab opens</span><button type="button" onClick={() => setOpenReport(null)}>Back to raw data</button></footer>
       </section> : <section id="catalog-panel-raw-data" className="catalog-raw-view" role="tabpanel" aria-labelledby="catalog-tab-raw-data" aria-busy={catalogLoading}>
         <div className="toolbar" aria-label="Catalog filters"><label className="search-field"><span className="sr-only">Search games</span><span aria-hidden="true">⌕</span><input disabled={!catalog} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search titles, developers, genres, tags" /></label><label className="select-field"><span className="sr-only">Owner range</span><select disabled={!catalog} value={ownerBand} onChange={(event) => { setOwnerBand(event.target.value); setPage(0); }}><option>All owner ranges</option>{OWNER_BANDS.map((item) => <option key={item} value={item}>{ownerBandLabels.get(item)}</option>)}</select></label><label className="select-field"><span className="sr-only">Price band</span><select disabled={!catalog} value={priceBand} onChange={(event) => { setPriceBand(event.target.value); setPage(0); }}><option>All prices</option>{PRICE_BANDS.map((item) => <option key={item}>{item}</option>)}</select></label></div>
-        <div className="result-strip"><span aria-live="polite">{catalogLoading ? "Updating results..." : catalog ? <><strong>{total.toLocaleString()}</strong> games match</> : catalogError}</span><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setPage(0); }}>Reset filters</button></div>
+        <div className="result-strip"><div className="catalog-result-context"><span aria-live="polite">{catalogLoading ? "Updating results..." : catalog ? <><strong>{total.toLocaleString()}</strong> games match</> : catalogError}</span>{catalogFilters.length ? <div className="catalog-filter-chips" aria-label="Applied facet filters">{catalogFilters.map((filter) => <button type="button" className="catalog-filter-chip" key={filter.id} aria-label={`Remove ${filter.label} filter`} onClick={() => { setCatalogFilters((items) => items.filter((item) => item.id !== filter.id)); setPage(0); }}>{filter.label}<span aria-hidden="true">×</span></button>)}</div> : null}</div><button type="button" disabled={!catalog} onClick={() => { setSearch(""); setOwnerBand("All owner ranges"); setPriceBand("All prices"); setCatalogFilters([]); setPage(0); }}>Reset filters</button></div>
         <div className="table-wrap"><table><thead><tr><th><button type="button" onClick={() => changeSort("title")}>Game <span>{sortIndicator("title")}</span></button></th><th><button type="button" onClick={() => changeSort("ownersMax")}>Owners <span>{sortIndicator("ownersMax")}</span></button></th><th><button type="button" onClick={() => changeSort("priceCents")}>Price <span>{sortIndicator("priceCents")}</span></button></th><th><button type="button" onClick={() => changeSort("positiveRatio")}>Reviews <span>{sortIndicator("positiveRatio")}</span></button></th><th><button type="button" onClick={() => changeSort("ccu")}>Players <span>{sortIndicator("ccu")}</span></button></th><th>Avg. playtime</th></tr></thead><tbody>{catalogLoading ? <CatalogTableSkeleton /> : games.map((game) => <tr key={game.id}><td><div className="game-cell"><GameCover game={game} /><span><strong>{game.title}</strong><small>{game.developer}{game.genres.length ? ` · ${game.genres.slice(0, 2).join(", ")}` : ""}</small></span></div></td><td><span className="genre-pill owner-range" title={game.owners}>{formatOwnerRange(game)}</span></td><td className="price-cell">{formatPrice(game.priceCents)}</td><td className="wishlist-cell">{formatPercent(game.positiveRatio)}</td><td className="wishlist-cell">{formatCompact(game.ccu)}</td><td><span className="status">{formatPlaytime(game.averageForever)}</span></td></tr>)}{!catalogLoading && !games.length && <tr><td colSpan={6}><div className="empty-state"><strong>{catalogError ? "Catalog unavailable" : "No games found"}</strong><span>{catalogError || "Try broader filters."}</span></div></td></tr>}</tbody></table></div>
         <footer className="desk-footer"><span>{catalogLoading ? "Updating catalog results..." : <>Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}</>}</span><div><button type="button" disabled={catalogLoading || visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={catalogLoading || visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer>
       </section>}

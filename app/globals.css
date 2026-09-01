@@ -138,6 +138,10 @@ tbody tr:hover { background: #f8fbfc; }
 .result-strip { min-height: 42px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--rule); color: #7b8790; font-size: 11px; }
 .result-strip strong { color: var(--ink); font-family: "Cascadia Mono", ui-monospace, monospace; font-weight: 550; }
 .result-strip button { padding: 5px; border: 0; color: var(--steam); background: transparent; cursor: pointer; font-size: 11px; }
+.catalog-result-context, .catalog-filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.result-strip .catalog-filter-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid #c7d5e0; border-radius: 999px; background: #edf3f8; color: #34556d; line-height: 1; }
+.result-strip .catalog-filter-chip:hover { border-color: var(--steam); color: var(--steam); }
+.catalog-filter-chip span { font-size: 14px; line-height: .8; }
 .empty-state { min-height: 240px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 7px; color: var(--muted); }
 .empty-state strong { color: var(--ink); font-size: 15px; }.empty-state span { font-size: 12px; }
 .saved-reports { width: min(1180px, 100%); margin-top: 18px; overflow: hidden; border: 1px solid #d5dde3; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 14px 40px rgba(35,55,68,.055); backdrop-filter: blur(16px); }

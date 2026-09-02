@@ -125,6 +125,12 @@
 .storefront-results-bar > div:last-child { display: flex; align-items: center; gap: 9px; }
 .storefront-results-bar b { padding: 6px 9px; border-radius: 6px; color: #287699; background: #e4f2f8; font: 650 8px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 
+.storefront-staged-draft { position: relative; z-index: 13; margin: 10px 12px 0; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #d2a64d; border-radius: 9px; color: #604916; background: #fff8df; box-shadow: 0 5px 14px rgba(99,72,14,.08); }
+.storefront-staged-draft > div { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.storefront-staged-draft span { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #704d00; background: #f7d77e; font: 750 8px/1 "Cascadia Mono",ui-monospace,monospace; letter-spacing: .08em; text-transform: uppercase; }
+.storefront-staged-draft strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.storefront-staged-draft p { margin: 0; color: #80682f; font-size: 9px; line-height: 1.45; text-align: right; }
+
 .storefront-curation-progress { position: absolute; z-index: 12; inset: 70px 0 0; min-height: 410px; padding: clamp(48px,8vw,92px) 20px 32px; display: grid; place-items: start center; background: rgba(240,247,250,.86); backdrop-filter: blur(3px) saturate(.82); animation: curation-overlay-in .22s ease-out both; }
 .curation-progress-card { width: min(680px,100%); padding: 25px 26px 22px; display: grid; grid-template-columns: 82px minmax(0,1fr); align-items: center; gap: 10px 22px; overflow: hidden; border: 1px solid #a8cad8; border-radius: 14px; background: linear-gradient(145deg,rgba(255,255,255,.98),rgba(238,248,251,.98)); box-shadow: 0 22px 55px rgba(27,71,92,.16),0 4px 14px rgba(27,71,92,.08); }
 .curation-progress-copy { min-width: 0; }
@@ -355,6 +361,8 @@
   .store-skeleton-ranking .store-skeleton-button { grid-column: 2 / -1; width: 100%; }
   .storefront-results-bar { align-items: flex-start; }
   .storefront-results-bar > div:last-child { align-items: flex-end; flex-direction: column-reverse; }
+  .storefront-staged-draft { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .storefront-staged-draft p { text-align: left; }
   .storefront-curation-progress { padding: 34px 10px 24px; }
   .curation-progress-card { padding: 20px 17px 17px; grid-template-columns: 62px minmax(0,1fr); gap: 8px 15px; }
   .curation-sorter { width: 58px; transform: scale(.86); transform-origin: left center; }

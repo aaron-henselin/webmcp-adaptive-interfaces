@@ -15,7 +15,7 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 | `describe_storefront` | Public schema, capabilities, safety rules, and the boolean `personalizationAvailable` signal | Returns no library titles, IDs, playtime, taste preferences, or profile data | None |
 | `exclude_owned_games` | `excludedCount` only | Matches public candidate IDs inside the page; returns no owned IDs or titles | None |
 | `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in and a game the user is choosing or buying for themselves; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
-| `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | Keeps the current results in place and starts an ephemeral curation-progress overlay |
+| `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | Applies the browser-authored `workingHeadline`, keeps the current results in place, and starts a paint-guaranteed curation-progress overlay |
 | `curate_storefront_results` | A validated editorial-curation receipt | Uses only public app IDs from the original recommendation set | Advances the progress overlay; stages headline, summary, featured badges, reasons, and ordering |
 | `apply_storefront_results` | A render-completion receipt with featured and visible app IDs | Reads no additional personal data | Changes only session-scoped filters, ranking, editorial presentation, and layout |
 | `save_storefront_facet` | The saved numeric-band, catalog-tag, or named tag-group facet | Reads no library data | Saves a removable browser preference |
@@ -65,7 +65,7 @@ Selecting a group filters by its saved rule. Games can match more than one group
 
 For an ordinary discovery, comparison, or ranking request:
 
-1. Call `recommend_storefront` with `personalization: "none"`. Do not call `get_taste_profile`. For similarity requests, express the reference separately and supply positive, preferred, and excluded tags.
+1. Call `recommend_storefront` with `personalization: "none"` and a concise present-tense `workingHeadline` in the browser's voice. The headline updates immediately and the progress overlay is guaranteed time to paint. Do not call `get_taste_profile`. For similarity requests, express the reference separately and supply positive, preferred, and excluded tags.
 2. Keep `excludeOwnedLocally: true` unless the user asks to include owned games. Matching happens inside the page and only the count is returned. When the library is empty, this path immediately skips owned-data matching.
 3. Treat retrieval as an intermediate step. By default, call `curate_storefront_results` with only app IDs returned by that recommendation, then present the curated result with an intentional headline, rationale, featured choice, reasons, and ordering.
 4. Stop after retrieval and present a plain search list only when the user explicitly asks for raw or conventional search results.
@@ -112,7 +112,7 @@ Editorial curation is a separate call and the preferred default after retrieval:
 }
 ```
 
-Every ID in `featured` and `orderedAppIds` is rejected unless it came from the original recommendation. Recommendation IDs remain valid for the document session until `clear_storefront_search` or the visible Clear control resets the search.
+Every ID in `featured` and `orderedAppIds` is rejected unless it came from the original recommendation. Recommendation IDs remain valid for the document session until `clear_storefront_search` or the visible Clear control resets the search. Both Clear paths also restore “Tell your browser what you want to play next.”
 
 After the committed render, `apply_storefront_results` returns:
 

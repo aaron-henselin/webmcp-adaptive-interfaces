@@ -6,6 +6,7 @@ import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNum
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
+const DEFAULT_BROWSER_HEADLINE = "Tell your browser what you want to play next.";
 const SEARCH_SESSION_KEY = "adaptive-interfaces.storefront-search/v1";
 const CUSTOM_FACETS_KEY = "adaptive-interfaces.storefront-facets/v3";
 const PREVIOUS_CUSTOM_FACETS_KEY = "adaptive-interfaces.storefront-facets/v2";
@@ -71,6 +72,7 @@ type StorefrontRuntime = {
   catalog: { current: CatalogPage | null };
   customFacets: { current: CustomFacet[] };
   library: { current: Set<number> };
+  setBrowserHeadline: (headline: string) => void;
   setCurationProgress: (phase: CurationPhase | null, query?: string) => void;
   applyRecommendation: (recommendation: PendingRecommendation) => Promise<ApplyReceipt>;
   saveFacet: (facets: CustomFacet[]) => void;
@@ -89,6 +91,7 @@ const RECOMMEND_SCHEMA = {
   additionalProperties: false,
   properties: {
     query: { type: "string", maxLength: 120, description: "Concise catalog search terms." },
+    workingHeadline: { type: "string", minLength: 1, maxLength: 100, description: "Browser-authored present-tense headline shown immediately while the visible storefront is being curated, for example “Finding a cozy game for your weekend.”" },
     reference: { type: "string", maxLength: 120, description: "A known game or franchise that anchors similarity intent without being treated as a literal catalog search." },
     includeTags: { type: "array", maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 }, description: "Relevant tags that candidates should cover. At least one must match when provided." },
     preferredTags: { type: "array", maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 }, description: "Soft preference tags that improve intentFit and tagCoverage." },
@@ -131,7 +134,7 @@ const RECOMMEND_SCHEMA = {
       required: ["factors"],
     },
   },
-  required: ["query"],
+  required: ["query", "workingHeadline"],
 };
 
 const CURATE_RECOMMENDATION_SCHEMA = {
@@ -445,6 +448,25 @@ function CurationProgressPanel({ progress }: { progress: CurationProgress }) {
   </div>;
 }
 
+function waitForCurationPaint(minimumMs: number) {
+  const minimum = new Promise<void>((resolve) => window.setTimeout(resolve, minimumMs));
+  const paint = new Promise<void>((resolve) => {
+    let settled = false;
+    const fallback = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    }, 800);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(fallback);
+      resolve();
+    }));
+  });
+  return Promise.all([minimum, paint]).then(() => undefined);
+}
+
 function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: string[], existingId?: string): CustomFacet {
   const label = cleanText(input.label, "", 40);
   if (input.kind !== undefined && input.kind !== "numeric" && input.kind !== "tag" && input.kind !== "tag_groups") throw new Error("The facet kind must be numeric, tag, or tag_groups.");
@@ -605,6 +627,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const [presentation, setPresentation] = useState<SearchPresentation | null>(null);
   const [appliedRecommendation, setAppliedRecommendation] = useState<PendingRecommendation | null>(null);
   const [curationProgress, setCurationProgressState] = useState<CurationProgress | null>(null);
+  const [browserHeadline, setBrowserHeadline] = useState(DEFAULT_BROWSER_HEADLINE);
   const [renderRequestVersion, setRenderRequestVersion] = useState(0);
   const [customFacets, setCustomFacets] = useState<CustomFacet[]>([]);
   const [selectedCustomBands, setSelectedCustomBands] = useState<Record<string, string>>({});
@@ -732,7 +755,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
 
   const clearSearch = useCallback(() => {
     setSearch(""); setPriceBand("All prices"); setGenre(""); setTag(""); setMinPositiveRatio(undefined); setMinReviewCount(undefined);
-    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setCurationProgressState(null); setSelectedCustomBands({});
+    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setCurationProgressState(null); setBrowserHeadline(DEFAULT_BROWSER_HEADLINE); setSelectedCustomBands({});
     storefrontRecommendations.clear();
     try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); window.sessionStorage.removeItem(LEGACY_SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
   }, []);
@@ -780,6 +803,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       catalog: catalogRef,
       customFacets: customFacetsRef,
       library: libraryRef,
+      setBrowserHeadline,
       setCurationProgress,
       applyRecommendation,
       saveFacet,
@@ -838,6 +862,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
                 "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
                 "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
+                "When calling recommend_storefront, write a concise present-tense workingHeadline in the browser's voice. It immediately replaces the default storefront invitation and remains visible while the recommendation is prepared.",
                 "recommend_storefront is the retrieval step, not the preferred final presentation. For discovery, comparison, ranking, or recommendation requests, follow it with curate_storefront_results by default so the result has an intentional headline, rationale, featured choice, reasons, and ordering. Return an uncurated search list only when the user explicitly asks for raw or conventional search results.",
                 "Use reference, includeTags, preferredTags, and excludeTags for intent relevance; rank with intentFit or tagCoverage when similarity matters.",
                 "Prefer curate_storefront_results over stopping after catalog retrieval. Call it separately after recommend_storefront for ordinary discovery, comparison, ranking, and recommendation requests; skip it only for an explicit raw or conventional search-results request. Every app ID must come from the original recommendation set.",
@@ -906,7 +931,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "recommend_storefront",
-        description: "Retrieve public Steam catalog candidates without changing the visible result set. While retrieval and the preferred curation step are in progress, the page keeps the current results in place beneath an ephemeral progress overlay. Treat named games as examples of the experience the user wants. If a game or franchise is not available on Steam, search for similar games that are instead of searching for the exact franchise. This is a retrieval step, not the preferred final presentation: for discovery, comparison, ranking, or recommendation requests, follow it with curate_storefront_results by default. Stop at an uncurated search list only when the user explicitly asks for raw or conventional search results. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Show me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
+        description: "Retrieve public Steam catalog candidates without changing the visible result set. Set workingHeadline to a concise present-tense message in the browser's voice; the page immediately replaces its default invitation with that text and keeps the current results beneath a paint-guaranteed progress overlay. Treat named games as examples of the experience the user wants. If a game or franchise is not available on Steam, search for similar games that are instead of searching for the exact franchise. This is a retrieval step, not the preferred final presentation: for discovery, comparison, ranking, or recommendation requests, follow it with curate_storefront_results by default. Stop at an uncurated search list only when the user explicitly asks for raw or conventional search results. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Show me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -924,7 +949,10 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             structuredContent: { ok: false, code: "PERSONALIZATION_OPT_IN_REQUIRED" },
           };
           const progressQuery = cleanText(input.query, "", 120);
+          const workingHeadline = cleanText(input.workingHeadline, DEFAULT_BROWSER_HEADLINE, 100);
+          storefrontRuntime?.setBrowserHeadline(workingHeadline);
           storefrontRuntime?.setCurationProgress("finding", progressQuery);
+          const initialPaint = waitForCurationPaint(650);
           try {
             const rawPresentation = isRecord(input.presentation) ? input.presentation : {};
             const mode = LAYOUTS.includes(rawPresentation.mode as LayoutMode) ? rawPresentation.mode as LayoutMode : "ranking";
@@ -966,7 +994,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             };
             const recommendationRequest = loadCatalogPage({ ...options, excludeAppIds: ownedIds }, controller.signal);
             const inclusiveCountRequest = ownedIds.length ? loadCatalogPage({ ...options, pageSize: 1 }, controller.signal) : null;
-            const [result, inclusive] = await Promise.all([recommendationRequest, inclusiveCountRequest]);
+            const [result, inclusive] = await Promise.all([recommendationRequest, inclusiveCountRequest, initialPaint]);
             const excludedOwnedCount = inclusive ? Math.max(0, inclusive.query.total - result.query.total) : 0;
             const nextPresentation: SearchPresentation = {
               title: "Recommendations shaped around your request",
@@ -980,6 +1008,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             };
             storefrontRecommendations.set(recommendationId, recommendation);
             storefrontRuntime?.setCurationProgress("curating", query);
+            await waitForCurationPaint(240);
             return {
               content: [{ type: "text", text: "Found " + result.games.length + " public game candidates without changing the storefront. Prefer calling curate_storefront_results next; stop here only if the user explicitly requested raw or conventional search results." }],
               structuredContent: {
@@ -1004,7 +1033,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         description: "Stage the preferred editorial presentation for one recommendation set. Use this after recommend_storefront by default for discovery, comparison, ranking, or recommendation requests; an uncurated search list is appropriate only when the user explicitly asks for raw or conventional search results. The visible storefront must match the assistant’s stated recommendation. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only when the assistant explicitly presents a shortlist, several equal options, or category winners. Do not turn supporting alternatives into co-equal featured recommendations when a single winner was stated. Give every featured game a badge and a Why it fits reason that reflects its role. This tool does not retrieve new games or change the visible UI, and every app ID is validated against the original recommendation set.",
         inputSchema: CURATE_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
-        execute: (input: Record<string, unknown>) => {
+        execute: async (input: Record<string, unknown>) => {
           const recommendationId = cleanText(input.recommendationId, "", 80);
           const recommendation = storefrontRecommendations.get(recommendationId);
           if (!recommendation) return {
@@ -1017,6 +1046,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             const curation = normalizeCuration(input, recommendation);
             recommendation.curation = curation;
             storefrontRuntime?.setCurationProgress("ready", recommendation.search);
+            await waitForCurationPaint(360);
             return {
               content: [{ type: "text", text: "Curated “" + curation.headline + "” using only games from the original recommendation set." }],
               structuredContent: {
@@ -1115,7 +1145,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: () => {
           storefrontRuntime?.clearSearch();
-          return { content: [{ type: "text", text: "Cleared the adaptive search and restored the conventional storefront." }], structuredContent: { ok: true, layout: "grid", customFacetsPreserved: true, libraryPreserved: true } };
+          return { content: [{ type: "text", text: "Cleared the adaptive search and restored the conventional storefront and default headline." }], structuredContent: { ok: true, layout: "grid", headlineReset: true, customFacetsPreserved: true, libraryPreserved: true } };
         },
       },
     ];
@@ -1197,7 +1227,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   return <><DemoSwitcher active="store" /><main className="storefront-shell">
     <section className="storefront" aria-label="Steam storefront">
       {!presentation ? <form className="storefront-search" role="search" onSubmit={(event) => event.preventDefault()}>
-        <section className="storefront-browser-hero" aria-labelledby="storefront-browser-title"><div className="storefront-browser-copy"><h2 id="storefront-browser-title">Tell your browser what you want to play next.</h2></div><div className="storefront-prompt-starters" aria-label="Prompt ideas">{STORE_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyStorePrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small aria-live="polite">{copiedStorePrompt === item.prompt ? "Copied ✓" : "Copy to ask ↗"}</small></button>)}</div></section>
+        <section className="storefront-browser-hero" aria-labelledby="storefront-browser-title"><div className="storefront-browser-copy"><h2 id="storefront-browser-title" aria-live="polite"><span key={browserHeadline}>{browserHeadline}</span></h2></div><div className="storefront-prompt-starters" aria-label="Prompt ideas">{STORE_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyStorePrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small aria-live="polite">{copiedStorePrompt === item.prompt ? "Copied ✓" : "Copy to ask ↗"}</small></button>)}</div></section>
         <div className="storefront-manual-search"><label><span aria-hidden="true">⌕</span><span className="sr-only">Search the store</span><input value={search} onChange={(event) => updateTextSearch(event.target.value)} placeholder="Search games, studios, genres, or tags" /></label><select aria-label="Sort games" value={sort} onChange={(event) => { setSort(event.target.value as SortKey); setDirection(event.target.value === "title" ? "asc" : "desc"); setPage(0); }}><option value="ownersMax">Most popular</option><option value="positiveRatio">Best reviewed</option><option value="reviewCount">Most reviewed</option><option value="ccu">Most active</option><option value="releaseYear">Newest</option><option value="priceCents">Price</option><option value="title">Title</option></select><button type="button" className="storefront-clear" onClick={clearSearch} disabled={!activeFilterCount && !presentation}>Clear</button></div>
       </form> : null}
 
@@ -1209,9 +1239,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       <div className={"storefront-body" + (editorial ? " is-curated" : "")}>
         {!editorial ? <aside className="storefront-facets" aria-label="Store filters">
           <div className="facet-heading"><div><span>Refine</span><b>{activeFilterCount || "All"} filters</b></div>{activeFilterCount ? <button type="button" onClick={clearSearch}>Reset</button> : null}</div>
+          <details className="facet-add"><summary><span className="facet-add-copy"><small>Browser-powered</small><b>Add a facet</b></span><span className="facet-add-icon" aria-hidden="true">+</span></summary><section className="facet-prompt-menu" role="dialog" aria-modal="false" aria-labelledby="facet-prompt-title"><header><span>Browser shortcut</span><h2 id="facet-prompt-title">You can say</h2><p>Your browser will configure and save the facet here.</p></header><div>{FACET_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyFacetPrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small>{copiedFacetPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</small></button>)}</div></section></details>
           <fieldset><legend>Price</legend><select value={priceBand} onChange={(event) => { setPriceBand(event.target.value as (typeof PRICE_BANDS)[number]); setPage(0); }}>{PRICE_BANDS.map((band) => <option key={band}>{band}</option>)}</select></fieldset>
           <fieldset><legend>Genre</legend><select value={genre} onChange={(event) => { setGenre(event.target.value); setPage(0); }}><option value="">All genres</option>{(catalog?.facets.genres ?? []).slice(0, 28).map((item) => <option key={item.label} value={item.label}>{item.label}</option>)}</select></fieldset>
-          <details className="facet-add"><summary><span className="facet-add-copy"><small>Browser-powered</small><b>Add a facet</b></span><span className="facet-add-icon" aria-hidden="true">+</span></summary><section className="facet-prompt-menu" role="dialog" aria-modal="false" aria-labelledby="facet-prompt-title"><header><span>Browser shortcut</span><h2 id="facet-prompt-title">You can say</h2><p>Your browser will configure and save the facet here.</p></header><div>{FACET_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyFacetPrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small>{copiedFacetPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</small></button>)}</div></section></details>
           <fieldset><legend>Popular tags</legend><div className="facet-chips">{(catalog?.facets.tags ?? []).slice(0, 9).map((item) => <button type="button" className={tag === item.label ? "active" : ""} key={item.label} onClick={() => { setTag((value) => value === item.label ? "" : item.label); setPage(0); }}>{item.label}</button>)}</div></fieldset>
           {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}>
             <legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => removeFacet(facet.id)}>×</button></legend>

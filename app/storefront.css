@@ -23,6 +23,8 @@
 .storefront-browser-hero::after { content: ""; position: absolute; z-index: -1; inset: 0; opacity: .16; background-image: radial-gradient(circle,rgba(186,235,255,.9) 0 1px,transparent 1.5px); background-position: 12px 9px; background-size: 62px 62px; mask-image: linear-gradient(90deg,black,transparent 48%); }
 .storefront-browser-copy { position: relative; min-width: 0; }
 .storefront-browser-copy h2 { max-width: 520px; margin: 0; color: white; font-size: clamp(26px,3.2vw,43px); font-weight: 640; line-height: 1.02; letter-spacing: -.045em; }
+@keyframes browser-headline-in { from { opacity: 0; transform: translate3d(0,8px,0); } to { opacity: 1; transform: translate3d(0,0,0); } }
+.storefront-browser-copy h2 > span { display: block; animation: browser-headline-in .28s cubic-bezier(.2,.78,.22,1) both; }
 @keyframes store-prompt-arrive { from { opacity: 0; transform: translate3d(14px,0,0) scale(.985); } to { opacity: 1; transform: translate3d(0,0,0) scale(1); } }
 @keyframes store-prompt-glint { 0% { opacity: 0; transform: translate3d(-220%,0,0) skewX(-18deg); } 28% { opacity: .72; } 100% { opacity: 0; transform: translate3d(560%,0,0) skewX(-18deg); } }
 .storefront-prompt-starters { position: relative; display: grid; gap: 8px; }
@@ -361,5 +363,5 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .store-card, .store-art::after, .store-buy, .facet-add > summary, .facet-add-icon, .storefront-prompt-starters button { transition: none; }
-  .storefront-demo-host::before, .storefront-demo-host::after, .storefront-browser-hero, .store-buy.is-adding, .store-skeleton-block, .store-best-signal i, .storefront-prompt-starters button, .storefront-prompt-starters button::after, .storefront-curation-progress, .curation-sorter span, .curation-progress-steps li.is-active > span { animation: none; }
+  .storefront-demo-host::before, .storefront-demo-host::after, .storefront-browser-hero, .storefront-browser-copy h2 > span, .store-buy.is-adding, .store-skeleton-block, .store-best-signal i, .storefront-prompt-starters button, .storefront-prompt-starters button::after, .storefront-curation-progress, .curation-sorter span, .curation-progress-steps li.is-active > span { animation: none; }
 }

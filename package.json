@@ -14,6 +14,7 @@
     "steamspy:build-static": "node scripts/build-steamspy-static.mjs",
     "catalog:build-content-exclusions": "node scripts/build-content-exclusions.mjs",
     "catalog:test-content-policy": "node --test scripts/catalog-content-policy.test.mjs",
+    "test:storefront-recovery": "node --experimental-strip-types --test tests/storefront-recommendation-workflow.test.mjs",
     "db:generate": "drizzle-kit generate",
     "catalog:profile": "node scripts/import-steam-catalog.mjs --profile",
     "catalog:build-import": "node scripts/import-steam-catalog.mjs",

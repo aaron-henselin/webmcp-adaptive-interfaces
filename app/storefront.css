@@ -101,8 +101,9 @@
 .facet-add-copy { display: grid; gap: 5px; }
 .facet-add-copy small { color: #347d9c; font: 700 7px/1 "Cascadia Mono", ui-monospace, monospace; letter-spacing: .11em; text-transform: uppercase; }
 .facet-add-copy b { font-size: 11px; font-weight: 720; letter-spacing: -.01em; }
-.facet-add-icon { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: white; background: linear-gradient(145deg,#2d91b9,#176b91); box-shadow: 0 5px 12px rgba(23,107,145,.26),inset 0 1px 0 rgba(255,255,255,.24); font: 700 18px/1 "Cascadia Mono", ui-monospace, monospace; transition: transform .2s ease; }
-.facet-add[open] .facet-add-icon { transform: rotate(45deg); }
+.facet-add-icon { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: white; background: linear-gradient(145deg,#2d91b9,#176b91); box-shadow: 0 5px 12px rgba(23,107,145,.26),inset 0 1px 0 rgba(255,255,255,.24); transition: transform .2s ease; }
+.facet-add-icon svg { width: 18px; height: 18px; display: block; fill: currentColor; }
+.facet-add > summary:hover .facet-add-icon, .facet-add[open] .facet-add-icon { transform: rotate(10deg) scale(1.04); }
 .facet-prompt-menu { position: absolute; z-index: 30; top: calc(100% + 9px); left: 0; width: 380px; max-width: calc(100vw - 44px); overflow: hidden; border: 1px solid #b8ccd6; border-radius: 12px; background: rgba(255,255,255,.98); box-shadow: 0 22px 55px rgba(22,48,63,.24),0 4px 12px rgba(22,48,63,.08); backdrop-filter: blur(18px); }
 .facet-prompt-menu::before { content: ""; position: absolute; top: -7px; left: 24px; width: 12px; height: 12px; transform: rotate(45deg); border-top: 1px solid #b8ccd6; border-left: 1px solid #b8ccd6; background: white; }
 .facet-prompt-menu header { padding: 17px 18px 13px; border-bottom: 1px solid #e0e8ec; background: linear-gradient(120deg,#f5fbfd,#faf7ff); }

@@ -19,6 +19,19 @@ export type SimilarityRecoveryAction = {
   preferredTags?: string[];
 };
 
+export type StorefrontApplyReceipt = {
+  rendered: true;
+  recommendationId: string;
+  featuredAppIds: number[];
+  visibleAppIds: number[];
+  summaryVisible: boolean;
+};
+
+type StorefrontApplyExpectation = {
+  recommendationId: string;
+  expectedFeaturedAppIds: number[];
+};
+
 const QUERY_FILLER = new Set([
   "a", "an", "are", "best", "by", "created", "developed", "find", "for", "from", "game", "games", "get",
   "give", "is", "made", "me", "my", "next", "of", "please", "published", "show", "that", "the", "to", "with",
@@ -99,4 +112,37 @@ export function buildSimilarityRecoveryAction(query: string): SimilarityRecovery
     reference,
     ...(profile ? { includeTags: profile.includeTags, preferredTags: profile.preferredTags } : {}),
   };
+}
+
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => Number.isInteger(item) && item > 0);
+}
+
+export function verifyStorefrontApplyReceipt(
+  value: unknown,
+  expectation: StorefrontApplyExpectation,
+): StorefrontApplyReceipt {
+  if (!value || typeof value !== "object") throw new Error("The storefront did not return an apply receipt.");
+  const receipt = value as Partial<StorefrontApplyReceipt>;
+  if (receipt.rendered !== true) throw new Error("The storefront did not confirm that the recommendation rendered.");
+  if (receipt.recommendationId !== expectation.recommendationId) throw new Error("The storefront rendered a different recommendation than the one requested.");
+  const featuredAppIds = receipt.featuredAppIds;
+  const visibleAppIds = receipt.visibleAppIds;
+  if (!isNumberArray(featuredAppIds) || !isNumberArray(visibleAppIds)) throw new Error("The storefront apply receipt is missing rendered app IDs.");
+  if (featuredAppIds.length !== expectation.expectedFeaturedAppIds.length
+    || featuredAppIds.some((id, index) => id !== expectation.expectedFeaturedAppIds[index])) {
+    throw new Error("The storefront featured items do not match the curated recommendation.");
+  }
+  if (expectation.expectedFeaturedAppIds.some((id) => !visibleAppIds.includes(id))) {
+    throw new Error("The curated winner is not visible in the rendered storefront.");
+  }
+  if (typeof receipt.summaryVisible !== "boolean") throw new Error("The storefront apply receipt is missing summary visibility.");
+  return receipt as StorefrontApplyReceipt;
+}
+
+export async function applyAndVerifyStorefrontResults(
+  expectation: StorefrontApplyExpectation,
+  apply: () => Promise<unknown>,
+) {
+  return verifyStorefrontApplyReceipt(await apply(), expectation);
 }

@@ -16,8 +16,9 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 | `exclude_owned_games` | `excludedCount` only | Matches public candidate IDs inside the page; returns no owned IDs or titles | None |
 | `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in and a game the user is choosing or buying for themselves; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
 | `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | Applies the browser-authored `workingHeadline`, keeps the current results in place, and starts a paint-guaranteed curation-progress overlay |
-| `curate_storefront_results` | A validated editorial-curation receipt | Uses only public app IDs from the original recommendation set | Advances the progress overlay; stages headline, summary, featured badges, reasons, and ordering |
-| `apply_storefront_results` | A render-completion receipt with featured and visible app IDs | Reads no additional personal data | Changes only session-scoped filters, ranking, editorial presentation, and layout |
+| `curate_storefront_results` | A validated draft receipt with `status: "staged"` and `requiresApply: true` | Uses only public app IDs from the original recommendation set | Shows a persistent “Draft — not applied” label; does not change the rendered recommendation |
+| `curate_and_apply_storefront_results` | A verified render-completion receipt for the standard workflow | Uses only public app IDs from the original recommendation set | Atomically stages, applies, and verifies session-scoped editorial presentation and layout |
+| `apply_storefront_results` | A verified render-completion receipt with recommendation, featured, and visible app IDs | Reads no additional personal data | Applies an intentionally staged draft |
 | `save_storefront_facet` | The saved numeric-band, catalog-tag, or named tag-group facet | Reads no library data | Saves a removable browser preference |
 | `remove_storefront_facet` | The removed facet ID | Reads no library data | Removes one browser preference |
 
@@ -69,9 +70,9 @@ For an ordinary discovery, comparison, or ranking request:
 2. Keep `excludeOwnedLocally: true` unless the user asks to include owned games. Matching happens inside the page and only the count is returned. When the library is empty, this path immediately skips owned-data matching.
 3. Use `queryScope: "creator"` for developer, publisher, or studio requests such as “find games made by Valve.” Keep the default `catalog` scope for title, franchise, genre, tag, and experience requests. This preserves creator discovery without allowing a developer-name collision to count as a game or franchise match.
 4. Check `workflowStatus`. A targeted candidate qualifies only when it has positive intent fit or tag coverage after literal-match scoring. If the response is `recovery_required`, do not finish: call `recommend_storefront` again with the supplied `retry_as_similarity` action.
-5. Treat successful retrieval as an intermediate step. Compare the returned intent fit, tag coverage, review quality, and review confidence. By default, call `curate_storefront_results` with only app IDs returned by that recommendation, then present the curated result with an intentional headline, rationale, featured choice, reasons, and ordering.
+5. Treat successful retrieval as an intermediate step. Compare the returned intent fit, tag coverage, review quality, and review confidence. By default, call `curate_and_apply_storefront_results` with only app IDs returned by that recommendation. It curates, applies, and verifies the result before completion.
 6. Stop after retrieval and present a plain search list only when the user explicitly asks for raw or conventional search results.
-7. Call `apply_storefront_results` with the returned `recommendationId` only when the user asked to change the visible storefront. It resolves after the summary, featured cards, and ordered list have rendered. If similarity recovery also produces no qualified candidates, `recommend_storefront` commits an explicit no-results state itself. `apply_storefront_no_results` is available when the returned recovery action cannot reasonably be attempted; it must not be used to skip a viable similarity search.
+7. Use `curate_storefront_results` only when intentionally creating a draft. Its result is not visible or highlighted; call `apply_storefront_results` with the returned `recommendationId` as the explicit second step. Do not claim an update unless the receipt has `rendered: true`, the expected `recommendationId`, and the stated winner in `featuredAppIds`. If application fails or is skipped, say that the draft was not applied. If similarity recovery also produces no qualified candidates, `recommend_storefront` commits an explicit no-results state itself. `apply_storefront_no_results` is available when the returned recovery action cannot reasonably be attempted; it must not be used to skip a viable similarity search.
 
 Example:
 
@@ -121,7 +122,7 @@ An unsuccessful literal franchise search returns a mandatory recovery state and 
 
 The retry clears the literal query so a developer or publisher name cannot keep constraining the similarity set. A successful retry returns `ready_for_curation`; an exhausted retry returns `no_results_applied` only after the explicit empty state has rendered.
 
-Editorial curation is a separate call and the preferred default after retrieval:
+The curation payload below is accepted by `curate_and_apply_storefront_results` for the standard verified workflow, or by `curate_storefront_results` when a draft is intentionally needed:
 
 ```json
 {
@@ -141,11 +142,12 @@ Editorial curation is a separate call and the preferred default after retrieval:
 
 Every ID in `featured` and `orderedAppIds` is rejected unless it came from the original recommendation. Recommendation IDs remain valid for the document session until `clear_storefront_search` or the visible Clear control resets the search. Both Clear paths also restore “Tell your browser what you want to play next.”
 
-After the committed render, `apply_storefront_results` returns:
+After a committed and verified render, `curate_and_apply_storefront_results` or `apply_storefront_results` returns:
 
 ```json
 {
   "rendered": true,
+  "recommendationId": "store-rec-...",
   "featuredAppIds": [253230],
   "visibleAppIds": [253230, 1586800, 969990],
   "summaryVisible": true

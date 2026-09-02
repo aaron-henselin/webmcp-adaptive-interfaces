@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DemoSwitcher, { type WebMcpStatus } from "./demo-switcher";
 import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField, type StorefrontTagGroupFilter } from "./catalog-data";
-import { buildSimilarityRecoveryAction, catalogQueryForRecommendation, qualifyRecommendationCandidates, resolveRecommendationQueryScope, similarityProfileForReference, type SimilarityRecoveryAction } from "./storefront-recommendation-workflow";
+import { applyAndVerifyStorefrontResults, buildSimilarityRecoveryAction, catalogQueryForRecommendation, qualifyRecommendationCandidates, resolveRecommendationQueryScope, similarityProfileForReference, type SimilarityRecoveryAction, type StorefrontApplyReceipt } from "./storefront-recommendation-workflow";
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
@@ -53,6 +53,7 @@ type StorefrontEmptyState = { title: string; message: string; allowClear: boolea
 type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean; editorial?: EditorialCuration; emptyState?: StorefrontEmptyState };
 type CurationPhase = "finding" | "curating" | "ready" | "applying" | "complete";
 type CurationProgress = { phase: CurationPhase; query: string };
+type StagedCuration = { recommendationId: string; headline: string; featuredTitles: string[] };
 type PrivateTasteProfile = { genres: string[]; tags: string[] };
 type PendingRecommendation = {
   id: string;
@@ -69,16 +70,16 @@ type PendingRecommendation = {
   resultTotal: number;
   curation?: EditorialCuration;
 };
-type ApplyReceipt = { rendered: true; featuredAppIds: number[]; visibleAppIds: number[]; summaryVisible: boolean };
 type StorefrontRuntime = {
   catalog: { current: CatalogPage | null };
   customFacets: { current: CustomFacet[] };
   library: { current: Set<number> };
   setBrowserHeadline: (headline: string) => void;
   setCurationProgress: (phase: CurationPhase | null, query?: string) => void;
-  applyRecommendation: (recommendation: PendingRecommendation) => Promise<ApplyReceipt>;
+  stageRecommendation: (recommendation: PendingRecommendation) => void;
+  applyRecommendation: (recommendation: PendingRecommendation) => Promise<StorefrontApplyReceipt>;
   showRecoveryState: (query: string, action: SimilarityRecoveryAction) => void;
-  applyNoResults: (query: string, message: string) => Promise<ApplyReceipt>;
+  applyNoResults: (query: string, message: string) => Promise<StorefrontApplyReceipt>;
   saveFacet: (facets: CustomFacet[]) => void;
   removeFacet: (facetId: string) => void;
   clearSearch: () => void;
@@ -442,16 +443,22 @@ function CurationProgressPanel({ progress }: { progress: CurationProgress }) {
     ? "Searching the catalog"
     : progress.phase === "curating"
       ? "Comparing the strongest matches"
-      : progress.phase === "complete"
-        ? "Your curated list is ready"
-        : "Building your curated list";
+      : progress.phase === "ready"
+        ? "Draft ready — not applied"
+        : progress.phase === "applying"
+          ? "Applying and verifying your curated list"
+          : progress.phase === "complete"
+            ? "Your curated list is ready"
+            : "Building your curated list";
   return <div className={"storefront-curation-progress phase-" + progress.phase} role="status" aria-live="polite">
     <div className="curation-progress-card">
       <div className="curation-sorter" aria-hidden="true"><span /><span /><span /></div>
       <div className="curation-progress-copy">
-        <span className="curation-progress-eyebrow">Browser curation</span>
+        <span className="curation-progress-eyebrow">{progress.phase === "ready" ? "Draft curation" : "Browser curation"}</span>
         <h3>{title}</h3>
-        <p>{progress.query ? <>Working from <strong>“{progress.query}”</strong> while the next result set is prepared.</> : "Reviewing the catalog while the next result set is prepared."}</p>
+        <p>{progress.phase === "ready"
+          ? "This draft has not changed the visible storefront. Apply it before describing it as visible or highlighted."
+          : progress.query ? <>Working from <strong>“{progress.query}”</strong> while the next result set is prepared.</> : "Reviewing the catalog while the next result set is prepared."}</p>
       </div>
       <ol className="curation-progress-steps" aria-label="Curation progress">
         {CURATION_STEPS.map((step, index) => <li className={index < phaseIndex ? "is-complete" : index === phaseIndex ? "is-active" : ""} key={step.phase}>
@@ -641,6 +648,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const [presentation, setPresentation] = useState<SearchPresentation | null>(null);
   const [appliedRecommendation, setAppliedRecommendation] = useState<PendingRecommendation | null>(null);
   const [curationProgress, setCurationProgressState] = useState<CurationProgress | null>(null);
+  const [stagedCuration, setStagedCuration] = useState<StagedCuration | null>(null);
   const [browserHeadline, setBrowserHeadline] = useState(DEFAULT_BROWSER_HEADLINE);
   const [renderRequestVersion, setRenderRequestVersion] = useState(0);
   const [customFacets, setCustomFacets] = useState<CustomFacet[]>([]);
@@ -656,7 +664,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const storageLoadedRef = useRef(false);
   const timersRef = useRef<number[]>([]);
   const curationCleanupTimerRef = useRef<number | null>(null);
-  const renderWaiterRef = useRef<{ recommendationId: string; resolve: (receipt: ApplyReceipt) => void } | null>(null);
+  const renderWaiterRef = useRef<{ recommendationId: string; resolve: (receipt: StorefrontApplyReceipt) => void } | null>(null);
 
   useEffect(() => { catalogRef.current = catalog; }, [catalog]);
   useEffect(() => { statusChangeRef.current = onWebMcpStatusChange; }, [onWebMcpStatusChange]);
@@ -769,7 +777,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
 
   const clearSearch = useCallback(() => {
     setSearch(""); setPriceBand("All prices"); setGenre(""); setTag(""); setMinPositiveRatio(undefined); setMinReviewCount(undefined);
-    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setCurationProgressState(null); setBrowserHeadline(DEFAULT_BROWSER_HEADLINE); setSelectedCustomBands({});
+    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setCurationProgressState(null); setStagedCuration(null); setBrowserHeadline(DEFAULT_BROWSER_HEADLINE); setSelectedCustomBands({});
     storefrontRecommendations.clear();
     storefrontRecoveryContext = null;
     try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); window.sessionStorage.removeItem(LEGACY_SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
@@ -787,19 +795,30 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     }, timeout);
   }, []);
 
-  const applyRecommendation = useCallback((pending: PendingRecommendation) => new Promise<ApplyReceipt>((resolve) => {
+  const stageRecommendation = useCallback((pending: PendingRecommendation) => {
+    const titlesById = new Map(pending.results.map((game) => [game.id, game.title]));
+    setStagedCuration({
+      recommendationId: pending.id,
+      headline: pending.curation?.headline ?? pending.presentation.title,
+      featuredTitles: (pending.curation?.featured ?? []).flatMap((item) => titlesById.get(item.appId) ?? []),
+    });
+    setCurationProgress("ready", pending.search);
+  }, [setCurationProgress]);
+
+  const applyRecommendation = useCallback((pending: PendingRecommendation) => new Promise<StorefrontApplyReceipt>((resolve) => {
     const editorial = pending.curation;
-    pending.presentation = {
+    const appliedPresentation: SearchPresentation = {
       ...pending.presentation,
       title: editorial?.headline ?? pending.presentation.title,
       explanation: editorial?.summary ?? pending.presentation.explanation,
       editorial,
     };
+    const applied = { ...pending, presentation: appliedPresentation };
     renderWaiterRef.current = { recommendationId: pending.id, resolve };
     setCurationProgress("applying", pending.search);
     setSearch(pending.search); setPriceBand(pending.priceBand); setGenre(pending.genre); setTag(pending.tag);
     setMinPositiveRatio(pending.minPositiveRatio); setMinReviewCount(pending.minReviewCount);
-    setSort(pending.sort); setDirection(pending.direction); setPresentation(pending.presentation); setAppliedRecommendation(pending); setPage(0);
+    setSort(pending.sort); setDirection(pending.direction); setPresentation(appliedPresentation); setAppliedRecommendation(applied); setPage(0);
     setRenderRequestVersion((version) => version + 1);
   }), [setCurationProgress]);
 
@@ -876,6 +895,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       library: libraryRef,
       setBrowserHeadline,
       setCurationProgress,
+      stageRecommendation,
       applyRecommendation,
       showRecoveryState,
       applyNoResults,
@@ -924,7 +944,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 environment: "local storefront demonstration",
                 commerce: "No cart, checkout, order, reservation, payment, billing, or real purchase capability exists.",
                 personalData: "No tool returns owned titles, app IDs, playtime, or a derived taste profile.",
-                writes: "recommend_storefront changes no result data and shows only ephemeral curation progress. curate_storefront_results stages editorial metadata and advances that progress. apply_storefront_results changes session UI only. Facets are removable local preferences.",
+                writes: "recommend_storefront changes no result data and shows only ephemeral curation progress. curate_storefront_results creates a visibly labeled draft that requires a separate apply. curate_and_apply_storefront_results is the standard verified session-UI update. Facets are removable local preferences.",
                 externalEffects: "Tools do not message another party or change any external service, retailer, account, or catalog record.",
               },
               guidance: [
@@ -936,13 +956,14 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
                 "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
                 "When calling recommend_storefront, write a concise present-tense workingHeadline in the browser's voice. It immediately replaces the default storefront invitation and remains visible while the recommendation is prepared.",
-                "recommend_storefront is the retrieval step, not the preferred final presentation. For discovery, comparison, ranking, or recommendation requests, follow it with curate_storefront_results by default so the result has an intentional headline, rationale, featured choice, reasons, and ordering. Return an uncurated search list only when the user explicitly asks for raw or conventional search results.",
+                "recommend_storefront is the retrieval step, not a completed visible recommendation. For discovery, comparison, ranking, or recommendation requests, follow it with curate_and_apply_storefront_results by default so the result is curated, rendered, and verified in one operation. Return an uncurated search list only when the user explicitly asks for raw or conventional search results.",
                 "Use reference, includeTags, preferredTags, and excludeTags for intent relevance; rank with intentFit or tagCoverage when similarity matters.",
                 "Set queryScope to creator only for developer, publisher, or studio requests. Creator scope deliberately keeps developer and publisher matches eligible; catalog scope requires title, genre, tag, or explicit intent evidence.",
                 "Do not finish after an unsuccessful literal search when similarity retrieval can reasonably satisfy the request. When workflowStatus is recovery_required, call recommend_storefront again with the retry_as_similarity action, compare the recovered signals, curate a shortlist or winner, and apply it before responding.",
                 "A candidate with zero intentFit and zero tagCoverage is not qualified for a targeted recommendation. If a similarity recovery returns no qualified candidates, the page applies an explicit no-results state so an earlier recommendation cannot remain visible.",
-                "Prefer curate_storefront_results over stopping after catalog retrieval. Call it separately after recommend_storefront for ordinary discovery, comparison, ranking, and recommendation requests; skip it only for an explicit raw or conventional search-results request. Every app ID must come from the original recommendation set.",
-                "Call apply_storefront_results only when the user asked to update the visible storefront. It preserves any staged editorial metadata and waits for rendering.",
+                "Prefer curate_and_apply_storefront_results after catalog retrieval for ordinary discovery, comparison, ranking, and recommendation requests. Every app ID must come from the original recommendation set.",
+                "Use curate_storefront_results only when intentionally creating a draft. Its status is staged and requiresApply is true; never describe that draft as visible or highlighted. Use apply_storefront_results as the explicit second step for such a draft.",
+                "Before claiming a storefront update, require rendered true, the expected recommendationId, and the stated winner in featuredAppIds from a verified apply receipt.",
                 "Use save_storefront_facet only for a user-requested reusable facet. Choose kind tag for one catalog concept, kind tag_groups for two or more named multi-tag choices that may overlap, or kind numeric for non-overlapping measurable bands. Tag groups compose with price and other active filters.",
                 "Treat named games as examples of the experience the user wants. If a game or franchise is not available on Steam, search for similar games that are instead of searching for the exact franchise.",
                 "Do not offer cart, checkout, ordering, payment, installation, or account access; none of those capabilities exists.",
@@ -1007,7 +1028,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "recommend_storefront",
-        description: "Retrieve public Steam catalog candidates without applying them to the visible result set. Set workingHeadline to a concise present-tense message in the browser's voice. Use queryScope creator only for developer, publisher, or studio requests; otherwise keep catalog scope so developer-name-only matches cannot masquerade as title, franchise, genre, or tag matches. Treat named games as examples of the experience the user wants. If a literal search has no qualified candidates, workflowStatus is recovery_required and stale results are replaced by a recovery state: do not finish. Call recommend_storefront again with the returned retry_as_similarity action, compare intent fit, tag coverage, review quality, and review confidence, curate a shortlist or winner, and apply it before responding. A targeted candidate with zero intentFit and zero tagCoverage is not qualified. If similarity recovery also fails, the tool applies an explicit no-results state. This is a retrieval step, not the preferred final presentation: for discovery, comparison, ranking, or recommendation requests, follow a successful retrieval with curate_storefront_results by default. Stop at an uncurated search list only when the user explicitly asks for raw or conventional search results. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer, or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
+        description: "Retrieve public Steam catalog candidates without applying them to the visible result set. Set workingHeadline to a concise present-tense message in the browser's voice. Use queryScope creator only for developer, publisher, or studio requests; otherwise keep catalog scope so developer-name-only matches cannot masquerade as title, franchise, genre, or tag matches. Treat named games as examples of the experience the user wants. If a literal search has no qualified candidates, workflowStatus is recovery_required and stale results are replaced by a recovery state: do not finish. Call recommend_storefront again with the returned retry_as_similarity action, compare intent fit, tag coverage, review quality, and review confidence, then call curate_and_apply_storefront_results before responding. A targeted candidate with zero intentFit and zero tagCoverage is not qualified. If similarity recovery also fails, the tool applies an explicit no-results state. This is a retrieval step, not the preferred final presentation: for discovery, comparison, ranking, or recommendation requests, follow a successful retrieval with curate_and_apply_storefront_results by default. Stop at an uncurated search list only when the user explicitly asks for raw or conventional search results. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer, or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -1089,7 +1110,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 storefrontRecoveryContext = { query: progressQuery, action, notice };
                 storefrontRuntime?.showRecoveryState(progressQuery, action);
                 return {
-                  content: [{ type: "text", text: "No literal candidates qualified. Recovery is required: call recommend_storefront again using the retry_as_similarity action, then compare, curate, and apply the recovered candidates before responding." }],
+                  content: [{ type: "text", text: "No literal candidates qualified. Recovery is required: call recommend_storefront again using the retry_as_similarity action, then compare and call curate_and_apply_storefront_results before responding." }],
                   structuredContent: {
                     schemaVersion: "adaptive-interfaces.storefront-recommendations/v2",
                     ok: true,
@@ -1134,7 +1155,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             storefrontRuntime?.setCurationProgress("curating", query);
             await waitForCurationPaint(240);
             return {
-              content: [{ type: "text", text: (priorRecovery ? "Recovered " : "Found ") + qualifiedResults.length + " qualified public game candidates without applying them. Compare the ranking signals, call curate_storefront_results, and then apply_storefront_results before responding." }],
+              content: [{ type: "text", text: (priorRecovery ? "Recovered " : "Found ") + qualifiedResults.length + " qualified public game candidates without applying them. Compare the ranking signals, then call curate_and_apply_storefront_results before responding with a visible recommendation." }],
               structuredContent: {
                 schemaVersion: "adaptive-interfaces.storefront-recommendations/v2",
                 ok: true,
@@ -1149,7 +1170,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 rankingSignals: nextRanking.map((factor) => factor.field),
                 results: qualifiedResults.map(publicGame),
                 excludedOwnedCount,
-                allowedNextActions: [{ action: "curate_shortlist", recommendationId }],
+                allowedNextActions: [{ action: "curate_and_apply", tool: "curate_and_apply_storefront_results", recommendationId }],
                 ...(priorRecovery ? { recovery: { from: priorRecovery.query, reference, catalogNotice: priorRecovery.notice } } : {}),
               },
             };
@@ -1166,7 +1187,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "curate_storefront_results",
-        description: "Stage the preferred editorial presentation for one recommendation set. Use this after recommend_storefront by default for discovery, comparison, ranking, or recommendation requests; an uncurated search list is appropriate only when the user explicitly asks for raw or conventional search results. The visible storefront must match the assistant’s stated recommendation. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only when the assistant explicitly presents a shortlist, several equal options, or category winners. Do not turn supporting alternatives into co-equal featured recommendations when a single winner was stated. Give every featured game a badge and a Why it fits reason that reflects its role. This tool does not retrieve new games or change the visible UI, and every app ID is validated against the original recommendation set.",
+        description: "Create a staged editorial draft for one recommendation set without changing the visible storefront. Use this only when a draft is intentionally needed; use curate_and_apply_storefront_results for the standard visible recommendation workflow. The result has status staged and requiresApply true, so never describe it as visible, rendered, applied, or highlighted until apply_storefront_results succeeds and its receipt is verified. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only for an explicit shortlist, equal options, or category winners. Every app ID is validated against the original recommendation set.",
         inputSchema: CURATE_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -1174,20 +1195,23 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           const recommendation = storefrontRecommendations.get(recommendationId);
           if (!recommendation) return {
             isError: true,
-            content: [{ type: "text", text: "That recommendation is unavailable or stale. Call recommend_storefront again." }],
-            structuredContent: { ok: false, code: "RECOMMENDATION_NOT_FOUND" },
+            content: [{ type: "text", text: "That recommendation is unavailable or stale. Nothing was applied; call recommend_storefront again." }],
+            structuredContent: { ok: false, status: "not_applied", code: "RECOMMENDATION_NOT_FOUND" },
           };
           try {
             storefrontRuntime?.setCurationProgress("curating", recommendation.search);
             const curation = normalizeCuration(input, recommendation);
             recommendation.curation = curation;
-            storefrontRuntime?.setCurationProgress("ready", recommendation.search);
+            storefrontRuntime?.stageRecommendation(recommendation);
             await waitForCurationPaint(360);
             return {
-              content: [{ type: "text", text: "Curated “" + curation.headline + "” using only games from the original recommendation set." }],
+              content: [{ type: "text", text: "Drafted “" + curation.headline + "” using only games from the original recommendation set. This draft has not been applied to the visible storefront." }],
               structuredContent: {
-                schemaVersion: "adaptive-interfaces.storefront-curation/v1",
+                schemaVersion: "adaptive-interfaces.storefront-curation/v2",
                 ok: true,
+                status: "staged",
+                requiresApply: true,
+                rendered: false,
                 recommendationId,
                 headline: curation.headline,
                 featuredAppIds: curation.featured.map((item) => item.appId),
@@ -1198,15 +1222,73 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             storefrontRuntime?.setCurationProgress(null);
             return {
               isError: true,
-              content: [{ type: "text", text: error instanceof Error ? error.message : "The recommendation could not be curated." }],
-              structuredContent: { ok: false, code: "INVALID_CURATION" },
+              content: [{ type: "text", text: (error instanceof Error ? error.message : "The recommendation could not be curated.") + " Nothing was applied to the visible storefront." }],
+              structuredContent: { ok: false, status: "not_applied", code: "INVALID_CURATION" },
+            };
+          }
+        },
+      },
+      {
+        name: "curate_and_apply_storefront_results",
+        description: "Standard recommendation completion path. Validate and stage editorial curation, apply it to the visible storefront, and verify the render receipt before reporting success. Use this instead of separate curate_storefront_results and apply_storefront_results calls for ordinary visible recommendations. Success is returned only when rendered is true, the receipt recommendationId matches, and the curated featured winner or shortlist exactly matches featuredAppIds. If the render cannot be verified, do not claim that the storefront was updated.",
+        inputSchema: CURATE_RECOMMENDATION_SCHEMA,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          const recommendationId = cleanText(input.recommendationId, "", 80);
+          const recommendation = storefrontRecommendations.get(recommendationId);
+          if (!recommendation) return {
+            isError: true,
+            content: [{ type: "text", text: "That recommendation is unavailable or stale. Nothing was applied; call recommend_storefront again." }],
+            structuredContent: { ok: false, status: "not_applied", code: "RECOMMENDATION_NOT_FOUND" },
+          };
+          let curation: EditorialCuration;
+          try {
+            curation = normalizeCuration(input, recommendation);
+          } catch (error) {
+            return {
+              isError: true,
+              content: [{ type: "text", text: (error instanceof Error ? error.message : "The recommendation could not be curated.") + " Nothing was applied to the visible storefront." }],
+              structuredContent: { ok: false, status: "not_applied", code: "INVALID_CURATION" },
+            };
+          }
+          recommendation.curation = curation;
+          storefrontRuntime?.stageRecommendation(recommendation);
+          const currentRuntime = storefrontRuntime;
+          if (!currentRuntime) return {
+            isError: true,
+            content: [{ type: "text", text: "The curation is saved as a draft, but the storefront page is unavailable, so it was not applied." }],
+            structuredContent: { ok: false, status: "staged", requiresApply: true, rendered: false, code: "STOREFRONT_NOT_MOUNTED", recommendationId },
+          };
+          try {
+            const expectedFeaturedAppIds = curation.featured.map((item) => item.appId);
+            const receipt = await applyAndVerifyStorefrontResults(
+              { recommendationId, expectedFeaturedAppIds },
+              () => currentRuntime.applyRecommendation(recommendation),
+            );
+            return {
+              content: [{ type: "text", text: "Applied and verified “" + curation.headline + "” on the visible storefront." }],
+              structuredContent: {
+                schemaVersion: "adaptive-interfaces.storefront-apply-receipt/v3",
+                ok: true,
+                status: "applied",
+                requiresApply: false,
+                headline: curation.headline,
+                persistence: "session until search is cleared",
+                ...receipt,
+              },
+            };
+          } catch (error) {
+            return {
+              isError: true,
+              content: [{ type: "text", text: (error instanceof Error ? error.message : "The storefront update could not be verified.") + " The draft was not confirmed as applied; do not describe it as visible." }],
+              structuredContent: { ok: false, status: "not_verified", requiresApply: true, rendered: false, code: "APPLY_NOT_VERIFIED", recommendationId },
             };
           }
         },
       },
       {
         name: "apply_storefront_results",
-        description: "Apply one staged recommendation to the visible storefront session. Prefer applying after curate_storefront_results so the storefront preserves an editorial summary, featured badges, Why it fits reasons, and intentional ordering; apply an uncurated recommendation only when the user explicitly asked for raw or conventional search results. Featured games render before the algorithmic list. The tool waits for the UI render to commit before returning. This cannot purchase, install, access an account, or write to an external service.",
+        description: "Apply one staged recommendation to the visible storefront session. This is the explicit second step for drafts created with curate_storefront_results; prefer curate_and_apply_storefront_results for the standard recommendation workflow. The tool verifies that rendering completed for the expected recommendation and that its curated winner or shortlist matches featuredAppIds. If verification fails, do not claim that the storefront was updated. This cannot purchase, install, access an account, or write to an external service.",
         inputSchema: APPLY_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -1214,20 +1296,32 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           const pending = storefrontRecommendations.get(recommendationId);
           if (!pending) return {
             isError: true,
-            content: [{ type: "text", text: "That recommendation is unavailable or stale. Call recommend_storefront again." }],
-            structuredContent: { ok: false, code: "RECOMMENDATION_NOT_FOUND" },
+            content: [{ type: "text", text: "That recommendation is unavailable or stale. Nothing was applied; call recommend_storefront again." }],
+            structuredContent: { ok: false, status: "not_applied", requiresApply: true, rendered: false, code: "RECOMMENDATION_NOT_FOUND" },
           };
           const currentRuntime = storefrontRuntime;
           if (!currentRuntime) return {
             isError: true,
-            content: [{ type: "text", text: "The storefront page is not currently available to render this recommendation." }],
-            structuredContent: { ok: false, code: "STOREFRONT_NOT_MOUNTED" },
+            content: [{ type: "text", text: "The storefront page is not currently available, so this recommendation was not applied." }],
+            structuredContent: { ok: false, status: "not_applied", requiresApply: true, rendered: false, code: "STOREFRONT_NOT_MOUNTED" },
           };
-          const receipt = await currentRuntime.applyRecommendation(pending);
-          return {
-            content: [{ type: "text", text: "Applied “" + pending.presentation.title + "” to the visible " + pending.presentation.mode + " storefront layout." }],
-            structuredContent: { schemaVersion: "adaptive-interfaces.storefront-apply-receipt/v2", ok: true, recommendationId, persistence: "session until search is cleared", ...receipt },
-          };
+          try {
+            const expectedFeaturedAppIds = (pending.curation?.featured ?? []).map((item) => item.appId);
+            const receipt = await applyAndVerifyStorefrontResults(
+              { recommendationId, expectedFeaturedAppIds },
+              () => currentRuntime.applyRecommendation(pending),
+            );
+            return {
+              content: [{ type: "text", text: "Applied and verified “" + (pending.curation?.headline ?? pending.presentation.title) + "” on the visible " + pending.presentation.mode + " storefront layout." }],
+              structuredContent: { schemaVersion: "adaptive-interfaces.storefront-apply-receipt/v3", ok: true, status: "applied", requiresApply: false, persistence: "session until search is cleared", ...receipt },
+            };
+          } catch (error) {
+            return {
+              isError: true,
+              content: [{ type: "text", text: (error instanceof Error ? error.message : "The storefront update could not be verified.") + " The recommendation was not confirmed as applied; do not describe it as visible." }],
+              structuredContent: { ok: false, status: "not_verified", requiresApply: true, rendered: false, code: "APPLY_NOT_VERIFIED", recommendationId },
+            };
+          }
         },
       },
       {
@@ -1317,7 +1411,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       .then(() => statusChangeRef.current("connected"))
       .catch(() => statusChangeRef.current("preview"));
     return () => { if (storefrontRuntime === runtime) storefrontRuntime = null; };
-  }, [applyNoResults, applyRecommendation, clearSearch, removeFacet, saveFacet, setCurationProgress, showRecoveryState]);
+  }, [applyNoResults, applyRecommendation, clearSearch, removeFacet, saveFacet, setCurationProgress, showRecoveryState, stageRecommendation]);
 
   const addToLibrary = useCallback((id: number) => {
     if (library.has(id) || addingId !== null) return;
@@ -1371,10 +1465,12 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         renderWaiterRef.current = null;
         if (curationCleanupTimerRef.current) window.clearTimeout(curationCleanupTimerRef.current);
         curationCleanupTimerRef.current = null;
+        setStagedCuration(null);
         setCurationProgressState((current) => current ? { ...current, phase: "complete" } : null);
         timersRef.current.push(window.setTimeout(() => setCurationProgressState((current) => current?.phase === "complete" ? null : current), 280));
         waiter.resolve({
           rendered: true,
+          recommendationId: waiter.recommendationId,
           featuredAppIds: featuredGames.map((item) => item.game.id),
           visibleAppIds,
           summaryVisible: Boolean(editorial?.summary),
@@ -1420,6 +1516,10 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
 
         <section className="storefront-results" aria-busy={loading || Boolean(curationProgress)} aria-live="polite">
           <div className="storefront-results-bar"><div><strong>{loading ? "Updating…" : total.toLocaleString() + " games"}</strong><span>{presentation ? activeMode + " view selected for this search" : "Conventional store results"}</span></div><div><span>{library.size} in library</span><b>{activeMode}</b></div></div>
+          {stagedCuration ? <aside className="storefront-staged-draft" aria-label="Staged recommendation draft">
+            <div><span>Draft — not applied</span><strong>{stagedCuration.headline}</strong></div>
+            <p>{stagedCuration.featuredTitles.length ? "Proposed featured: " + stagedCuration.featuredTitles.join(", ") + ". " : ""}The visible storefront has not changed.</p>
+          </aside> : null}
           {curationProgress ? <CurationProgressPanel progress={curationProgress} /> : null}
           {loading ? <StorefrontResultsSkeleton mode={activeMode} /> : catalogError && !appliedRecommendation ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !games.length ? <div className="storefront-empty"><strong>{emptyState?.title ?? "No games match this search"}</strong><p>{emptyState?.message ?? "Clear a filter or try broader terms."}</p>{emptyState?.allowClear !== false ? <button type="button" onClick={clearSearch}>Clear search</button> : null}</div> : <>
             {featuredGames.length ? <section className={"store-featured" + (featuredGames.length === 1 ? " is-single" : "")} aria-labelledby="store-featured-title">

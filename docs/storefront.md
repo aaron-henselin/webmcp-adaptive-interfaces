@@ -67,9 +67,11 @@ For an ordinary discovery, comparison, or ranking request:
 
 1. Call `recommend_storefront` with `personalization: "none"` and a concise present-tense `workingHeadline` in the browser's voice. The headline updates immediately and the progress overlay is guaranteed time to paint. Do not call `get_taste_profile`. For similarity requests, express the reference separately and supply positive, preferred, and excluded tags.
 2. Keep `excludeOwnedLocally: true` unless the user asks to include owned games. Matching happens inside the page and only the count is returned. When the library is empty, this path immediately skips owned-data matching.
-3. Treat retrieval as an intermediate step. By default, call `curate_storefront_results` with only app IDs returned by that recommendation, then present the curated result with an intentional headline, rationale, featured choice, reasons, and ordering.
-4. Stop after retrieval and present a plain search list only when the user explicitly asks for raw or conventional search results.
-5. Call `apply_storefront_results` with the returned `recommendationId` only when the user asked to change the visible storefront. It resolves after the summary, featured cards, and ordered list have rendered.
+3. Use `queryScope: "creator"` for developer, publisher, or studio requests such as “find games made by Valve.” Keep the default `catalog` scope for title, franchise, genre, tag, and experience requests. This preserves creator discovery without allowing a developer-name collision to count as a game or franchise match.
+4. Check `workflowStatus`. A targeted candidate qualifies only when it has positive intent fit or tag coverage after literal-match scoring. If the response is `recovery_required`, do not finish: call `recommend_storefront` again with the supplied `retry_as_similarity` action.
+5. Treat successful retrieval as an intermediate step. Compare the returned intent fit, tag coverage, review quality, and review confidence. By default, call `curate_storefront_results` with only app IDs returned by that recommendation, then present the curated result with an intentional headline, rationale, featured choice, reasons, and ordering.
+6. Stop after retrieval and present a plain search list only when the user explicitly asks for raw or conventional search results.
+7. Call `apply_storefront_results` with the returned `recommendationId` only when the user asked to change the visible storefront. It resolves after the summary, featured cards, and ordered list have rendered. If similarity recovery also produces no qualified candidates, `recommend_storefront` commits an explicit no-results state itself. `apply_storefront_no_results` is available when the returned recovery action cannot reasonably be attempted; it must not be used to skip a viable similarity search.
 
 Example:
 
@@ -93,6 +95,31 @@ Example:
 ```
 
 The include tags require at least one relevant match, excluded tags are hard exclusions, and `intentFit` and `tagCoverage` keep weak but popular matches from dominating the list.
+
+An unsuccessful literal franchise search returns a mandatory recovery state and immediately removes the stale recommendation from view:
+
+```json
+{
+  "qualifiedCandidateCount": 0,
+  "workflowStatus": "recovery_required",
+  "uiUpdated": false,
+  "staleResultsCleared": true,
+  "allowedNextActions": [
+    {
+      "action": "retry_as_similarity",
+      "query": "",
+      "queryScope": "catalog",
+      "reference": "Super Mario",
+      "includeTags": ["Platformer", "3D Platformer", "2D Platformer"],
+      "preferredTags": ["Family Friendly", "Colorful", "Controller"]
+    },
+    { "action": "broaden_search" },
+    { "action": "apply_no_results", "tool": "apply_storefront_no_results" }
+  ]
+}
+```
+
+The retry clears the literal query so a developer or publisher name cannot keep constraining the similarity set. A successful retry returns `ready_for_curation`; an exhausted retry returns `no_results_applied` only after the explicit empty state has rendered.
 
 Editorial curation is a separate call and the preferred default after retrieval:
 

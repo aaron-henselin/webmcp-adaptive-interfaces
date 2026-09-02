@@ -6,10 +6,13 @@ import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNum
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
-const SEARCH_SESSION_KEY = "steam-desk.storefront-search/v1";
-const CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v2";
-const LEGACY_CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v1";
-const LIBRARY_KEY = "steam-desk.storefront-library/v1";
+const SEARCH_SESSION_KEY = "adaptive-interfaces.storefront-search/v1";
+const CUSTOM_FACETS_KEY = "adaptive-interfaces.storefront-facets/v2";
+const LIBRARY_KEY = "adaptive-interfaces.storefront-library/v1";
+const LEGACY_SEARCH_SESSION_KEY = "steam-desk.storefront-search/v1";
+const LEGACY_CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v2";
+const OLDER_LEGACY_CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v1";
+const LEGACY_LIBRARY_KEY = "steam-desk.storefront-library/v1";
 const PRICE_BANDS = ["All prices", "Free", "Under $10", "$10–$29.99", "$30–$59.99", "$60+"] as const;
 const SORTS = ["ownersMax", "title", "priceCents", "positiveRatio", "reviewCount", "ccu", "releaseYear"] as const;
 const LAYOUTS = ["grid", "list", "table", "ranking"] as const;
@@ -519,7 +522,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     queueMicrotask(() => {
       if (cancelled) return;
       try {
-        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(LEGACY_CUSTOM_FACETS_KEY) ?? "[]") as unknown;
+        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(LEGACY_CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(OLDER_LEGACY_CUSTOM_FACETS_KEY) ?? "[]") as unknown;
         if (Array.isArray(facets)) {
           const valid = facets.flatMap((item): CustomFacet[] => {
             if (!isRecord(item)) return [];
@@ -527,13 +530,13 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           }).slice(0, 8);
           customFacetsRef.current = valid; setCustomFacets(valid);
         }
-        const owned = JSON.parse(window.localStorage.getItem(LIBRARY_KEY) ?? "[]") as unknown;
+        const owned = JSON.parse(window.localStorage.getItem(LIBRARY_KEY) ?? window.localStorage.getItem(LEGACY_LIBRARY_KEY) ?? "[]") as unknown;
         if (Array.isArray(owned)) {
           const nextLibrary = new Set(owned.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 2000));
           libraryRef.current = nextLibrary;
           setLibrary(nextLibrary);
         }
-        const session = JSON.parse(window.sessionStorage.getItem(SEARCH_SESSION_KEY) ?? "null") as unknown;
+        const session = JSON.parse(window.sessionStorage.getItem(SEARCH_SESSION_KEY) ?? window.sessionStorage.getItem(LEGACY_SEARCH_SESSION_KEY) ?? "null") as unknown;
         if (isRecord(session) && isRecord(session.presentation)) {
           const stored = session.presentation as unknown as SearchPresentation;
           if (LAYOUTS.includes(stored.mode) && Array.isArray(stored.highlights) && Array.isArray(stored.ranking)) {
@@ -554,14 +557,14 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
 
   useEffect(() => {
     if (!storageLoadedRef.current) return;
-    try { window.localStorage.setItem(CUSTOM_FACETS_KEY, JSON.stringify(customFacets)); } catch { /* Session fallback. */ }
+    try { window.localStorage.setItem(CUSTOM_FACETS_KEY, JSON.stringify(customFacets)); window.localStorage.removeItem(LEGACY_CUSTOM_FACETS_KEY); window.localStorage.removeItem(OLDER_LEGACY_CUSTOM_FACETS_KEY); } catch { /* Session fallback. */ }
     customFacetsRef.current = customFacets;
   }, [customFacets]);
 
   useEffect(() => {
     if (!storageLoadedRef.current) return;
     libraryRef.current = library;
-    try { window.localStorage.setItem(LIBRARY_KEY, JSON.stringify([...library])); } catch { /* Session fallback. */ }
+    try { window.localStorage.setItem(LIBRARY_KEY, JSON.stringify([...library])); window.localStorage.removeItem(LEGACY_LIBRARY_KEY); } catch { /* Session fallback. */ }
   }, [library]);
 
   useEffect(() => {
@@ -569,6 +572,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     try {
       if (!presentation) window.sessionStorage.removeItem(SEARCH_SESSION_KEY);
       else window.sessionStorage.setItem(SEARCH_SESSION_KEY, JSON.stringify({ presentation, search, priceBand, genre, tag, minPositiveRatio, minReviewCount, sort, direction }));
+      window.sessionStorage.removeItem(LEGACY_SEARCH_SESSION_KEY);
     } catch { /* In-memory state remains usable. */ }
   }, [presentation, search, priceBand, genre, tag, minPositiveRatio, minReviewCount, sort, direction]);
 
@@ -604,7 +608,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     setSearch(""); setPriceBand("All prices"); setGenre(""); setTag(""); setMinPositiveRatio(undefined); setMinReviewCount(undefined);
     setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setSelectedCustomBands({});
     storefrontRecommendations.clear();
-    try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
+    try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); window.sessionStorage.removeItem(LEGACY_SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
   }, []);
 
   const applyRecommendation = useCallback((pending: PendingRecommendation) => new Promise<ApplyReceipt>((resolve) => {
@@ -668,7 +672,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           return {
             content: [{ type: "text", text: "Described the storefront's public discovery and local personalization capabilities without disclosing personal library data." }],
             structuredContent: {
-              schemaVersion: "steam-desk.storefront/v2",
+              schemaVersion: "adaptive-interfaces.storefront/v2",
               personalizationAvailable: Boolean(currentRuntime?.library.current.size),
               catalog: { recordCount: current?.meta.recordCount ?? null, genres: current?.facets.genres.slice(0, 30).map((item) => item.label) ?? [], tags: current?.facets.tags.slice(0, 40).map((item) => item.label) ?? [] },
               presentationModes: LAYOUTS,
@@ -717,7 +721,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           const excludedCount = owned.size ? candidates.reduce((count, id) => count + (owned.has(id) ? 1 : 0), 0) : 0;
           return {
             content: [{ type: "text", text: excludedCount ? "Excluded " + excludedCount + " locally owned candidate games." : "No candidate games were excluded." }],
-            structuredContent: { schemaVersion: "steam-desk.owned-exclusion/v1", excludedCount },
+            structuredContent: { schemaVersion: "adaptive-interfaces.owned-exclusion/v1", excludedCount },
           };
         },
       },
@@ -742,7 +746,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             privateTasteProfileState = null;
             return {
               content: [{ type: "text", text: "The local library is empty, so no taste profile was read or created." }],
-              structuredContent: { schemaVersion: "steam-desk.private-taste-profile/v1", ok: true, ready: false, reason: "empty_library" },
+              structuredContent: { schemaVersion: "adaptive-interfaces.private-taste-profile/v1", ok: true, ready: false, reason: "empty_library" },
             };
           }
           try {
@@ -752,7 +756,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             privateTasteProfileState = privateTasteProfile(libraryCatalog.games);
             return {
               content: [{ type: "text", text: "Prepared private local-library personalization. No library or profile data was disclosed." }],
-              structuredContent: { schemaVersion: "steam-desk.private-taste-profile/v1", ok: true, ready: true },
+              structuredContent: { schemaVersion: "adaptive-interfaces.private-taste-profile/v1", ok: true, ready: true },
             };
           } catch (error) {
             privateTasteProfileState = null;
@@ -836,7 +840,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             return {
               content: [{ type: "text", text: "Found " + result.games.length + " public game recommendations without changing the storefront." }],
               structuredContent: {
-                schemaVersion: "steam-desk.storefront-recommendations/v1",
+                schemaVersion: "adaptive-interfaces.storefront-recommendations/v1",
                 ok: true,
                 recommendationId,
                 personalization,
@@ -870,7 +874,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             return {
               content: [{ type: "text", text: "Curated “" + curation.headline + "” using only games from the original recommendation set." }],
               structuredContent: {
-                schemaVersion: "steam-desk.storefront-curation/v1",
+                schemaVersion: "adaptive-interfaces.storefront-curation/v1",
                 ok: true,
                 recommendationId,
                 headline: curation.headline,
@@ -909,7 +913,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           const receipt = await currentRuntime.applyRecommendation(pending);
           return {
             content: [{ type: "text", text: "Applied “" + pending.presentation.title + "” to the visible " + pending.presentation.mode + " storefront layout." }],
-            structuredContent: { schemaVersion: "steam-desk.storefront-apply-receipt/v2", ok: true, recommendationId, persistence: "session until search is cleared", ...receipt },
+            structuredContent: { schemaVersion: "adaptive-interfaces.storefront-apply-receipt/v2", ok: true, recommendationId, persistence: "session until search is cleared", ...receipt },
           };
         },
       },
@@ -931,7 +935,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             const message = facet.kind === "tag"
               ? "Added the local “" + facet.label + "” facet for games tagged “" + facet.tag + ".”"
               : "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands.";
-            return { content: [{ type: "text", text: message }], structuredContent: { schemaVersion: "steam-desk.storefront-facet-receipt/v2", ok: true, saved: true, storage: "local", facet } };
+            return { content: [{ type: "text", text: message }], structuredContent: { schemaVersion: "adaptive-interfaces.storefront-facet-receipt/v2", ok: true, saved: true, storage: "local", facet } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The custom facet could not be saved." }], structuredContent: { ok: false } };
           }

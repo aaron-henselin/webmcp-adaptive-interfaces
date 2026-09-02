@@ -1,6 +1,6 @@
 # Steam catalog database
 
-Steam Desk stores its runtime catalog in Cloudflare D1. The browser requests only paginated game rows, filter summaries, facets, or report results capped at 2,000 rows.
+The Adaptive Interfaces demos store their runtime catalog in Cloudflare D1. The browser requests only paginated game rows, filter summaries, facets, or report results capped at 2,000 rows.
 
 ## Source and schema
 

@@ -86,7 +86,7 @@ export async function GET(request: Request) {
     const query = (url.searchParams.get("query") ?? "").trim().slice(0, 120);
     const search = ftsQuery(query);
     const limit = boundedInteger(url.searchParams.get("limit"), 8, 1, 12);
-    if (!search) return NextResponse.json({ schemaVersion: "steam-desk.company-search/v2", query, candidates: [], resolution: { status: "not_found", confidence: 0 } });
+    if (!search) return NextResponse.json({ schemaVersion: "adaptive-interfaces.company-search/v2", query, candidates: [], resolution: { status: "not_found", confidence: 0 } });
 
     const database = catalogDb();
     const exactPromise = database.prepare([
@@ -138,7 +138,7 @@ export async function GET(request: Request) {
     const candidates = ranked.slice(0, limit);
 
     return NextResponse.json({
-      schemaVersion: "steam-desk.company-search/v2",
+      schemaVersion: "adaptive-interfaces.company-search/v2",
       query,
       candidates,
       resolution: {

@@ -388,7 +388,7 @@ export async function GET(request: Request) {
     const imported = importResult.results[0] as Record<string, unknown> | undefined;
     const games = (gamesResult.results as Array<Record<string, unknown>>).map((game) => ({ ...game, genres: parseDbJsonArray(game.genres), tags: parseDbJsonArray(game.tags) }));
     return NextResponse.json({
-      schemaVersion: "steam-desk.catalog-page/v1",
+      schemaVersion: "adaptive-interfaces.catalog-page/v1",
       meta: {
         recordCount: Number(imported?.recordCount ?? total),
         importedAt: String(imported?.importedAt ?? ""),

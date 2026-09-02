@@ -1,6 +1,6 @@
-# Steam Desk
+# Adaptive Interfaces
 
-Steam Desk is an interactive dashboard for exploring a database-backed catalog of 139,556 Steam games. Browsing, full-text search, genre/tag analysis, and report execution run against Cloudflare D1; the browser receives only bounded result sets.
+Adaptive Interfaces is a collection of three WebMCP demos showing how familiar interfaces can respond to user intent, context, and conversation. The demos explore a database-backed catalog of 139,556 Steam games; browsing, full-text search, genre/tag analysis, and report execution run against Cloudflare D1, while the browser receives only bounded result sets.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ On macOS or Linux, use `cp .env.example .env.local`. `SITE_ORIGIN` controls the 
 
 ## Site tools
 
-Steam Desk exposes three focused demos: the root route is the Data Table Demo, with a catalog grid, saved reports, and one active report surface; `/builder` is the composable Dashboard Demo; and `/store` is a local-only Storefront Demo with adaptive search, rankings, reusable facets, and a simulated library.
+Adaptive Interfaces includes three focused demos: the root route is the Data Table Demo, with a catalog grid, saved reports, and one active report surface; `/builder` is the composable Dashboard Demo; and `/store` is a local-only Storefront Demo with adaptive search, rankings, reusable facets, and a simulated library.
 
 The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog`. The Dashboard Demo opens with a full-screen invitation to say “onboard me.” That phrase, or a natural equivalent such as “set me up” or “get started,” directs the agent to call `onboard_audience`. The tool surveys name, company, and role; resolves strong company typos against D1; and asks the user only when candidates are ambiguous. After saving the audience, the agent must propose the most useful page and receive approval through the temporary `request_page_composition` handoff before `compose_page` unlocks.
 

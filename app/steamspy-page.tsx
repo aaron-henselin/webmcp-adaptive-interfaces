@@ -68,8 +68,9 @@ const MAX_SAVED_REPORTS = 8;
 const MAX_CHAT_REPORT_ROWS = 20;
 const MAX_CHAT_REPORT_COLUMNS = 8;
 const EMPTY_GAMES: SteamSpyGame[] = [];
-const SAVED_REPORTS_KEY = "steam-desk:saved-reports:v4";
-const LEGACY_SAVED_REPORTS_KEY = "steam-desk:saved-reports:v3";
+const SAVED_REPORTS_KEY = "adaptive-interfaces:saved-reports:v4";
+const LEGACY_SAVED_REPORTS_KEY = "steam-desk:saved-reports:v4";
+const OLDER_LEGACY_SAVED_REPORTS_KEY = "steam-desk:saved-reports:v3";
 const PLOTLY_TRACE_SCHEMA = {
   type: "object",
   additionalProperties: true,
@@ -197,7 +198,7 @@ function reportToolFailure(error: unknown) {
   return {
     content: [{ type: "text", text: `Report creation failed (${failure.code}): ${failure.message}${failure.retryable ? " Retrying may succeed." : " Correct the report definition before retrying."}` }],
     structuredContent: {
-      schemaVersion: "steam-desk.report-receipt/v2",
+      schemaVersion: "adaptive-interfaces.report-receipt/v2",
       ok: false,
       created: false,
       saved: false,
@@ -219,7 +220,7 @@ function renderToolFailure(error: unknown) {
   return {
     content: [{ type: "text", text: `Report rendering failed (${failure.code}): ${failure.message}${failure.retryable ? " Retrying may succeed." : " Change the request before retrying."}` }],
     structuredContent: {
-      schemaVersion: "steam-desk.report-render/v2",
+      schemaVersion: "adaptive-interfaces.report-render/v2",
       ok: false,
       rendered: false,
       error: {
@@ -370,7 +371,7 @@ function markdownTable(columns: TableColumn[], rows: Record<string, unknown>[]) 
     `| ${columns.map((column) => escapeMarkdown(formatReportValue(row[column.field], column.format))).join(" | ")} |`
   ));
   const remainder = rows.length - Math.min(rows.length, MAX_CHAT_REPORT_ROWS);
-  return [header, divider, ...body, ...(remainder > 0 ? [`_${remainder.toLocaleString()} additional rows are available in Steam Desk._`] : [])].join("\n");
+  return [header, divider, ...body, ...(remainder > 0 ? [`_${remainder.toLocaleString()} additional rows are available in the interactive report._`] : [])].join("\n");
 }
 
 async function runSavedReport(report: SavedReport, games: SteamSpyGame[]): Promise<OpenReport> {
@@ -489,7 +490,7 @@ export default function SteamSpyPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const stored = window.localStorage.getItem(SAVED_REPORTS_KEY) ?? window.localStorage.getItem(LEGACY_SAVED_REPORTS_KEY);
+        const stored = window.localStorage.getItem(SAVED_REPORTS_KEY) ?? window.localStorage.getItem(LEGACY_SAVED_REPORTS_KEY) ?? window.localStorage.getItem(OLDER_LEGACY_SAVED_REPORTS_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
@@ -519,6 +520,8 @@ export default function SteamSpyPage() {
     savedReportsRef.current = savedReports;
     try {
       window.localStorage.setItem(SAVED_REPORTS_KEY, JSON.stringify(savedReports));
+      window.localStorage.removeItem(LEGACY_SAVED_REPORTS_KEY);
+      window.localStorage.removeItem(OLDER_LEGACY_SAVED_REPORTS_KEY);
     } catch {
       // Reports remain usable for the current session if persistence is unavailable.
     }
@@ -600,7 +603,7 @@ export default function SteamSpyPage() {
         execute: () => ({
           content: [{ type: "text", text: `Described the SteamSpy report contract: ${STEAMSPY_FIELD_CATALOG.length} fields, five presentation modes, and no game records.` }],
           structuredContent: {
-            schemaVersion: "steam-desk.datasource/v1",
+            schemaVersion: "adaptive-interfaces.datasource/v1",
             source: {
               name: "steamspy_snapshot",
               label: "SteamSpy static snapshot",
@@ -624,7 +627,7 @@ export default function SteamSpyPage() {
       },
       {
         name: "create_report",
-        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Executes and saves the complete report, optionally opens it in Steam Desk, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, or Saved Reports through the page UI.",
+        description: "Use for any request to analyze, rank, summarize, chart, or create a table from the SteamSpy snapshot. Choose exactly one presentation mode. Mixed means one headline metric plus one supporting chart and never includes a table; create separate reports when both a chart and table are needed. Executes and saves the complete report, optionally opens it in the interface, and returns only a compact receipt with ok, created, saved, browser.opened, report.id, report.title, report.mode, and report.rowCount. Validation errors are not retryable; REPORT_EXECUTION_FAILED is retryable. Prefer this tool over manipulating filters, sorting, pagination, or Saved Reports through the page UI.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -633,7 +636,7 @@ export default function SteamSpyPage() {
             description: { type: "string", maxLength: 220 },
             data: REPORT_DATA_SCHEMA,
             presentation: REPORT_PRESENTATION_SCHEMA,
-            openInBrowser: { type: "boolean", default: true, description: "Whether to open and scroll to the completed report in Steam Desk. The report is saved either way." },
+            openInBrowser: { type: "boolean", default: true, description: "Whether to open and scroll to the completed report in the interface. The report is saved either way." },
           },
           required: ["title", "data", "presentation"],
         },
@@ -643,9 +646,9 @@ export default function SteamSpyPage() {
             const completed = await createReport(input);
             const report = completed.report;
             return {
-              content: [{ type: "text", text: `Created and saved ${reportModeLabel(report.presentation.mode).toLocaleLowerCase()} report “${report.title}” with ID ${report.id}. The Steam Desk panel was ${completed.openInBrowser ? "opened" : "left closed"}.` }],
+              content: [{ type: "text", text: `Created and saved ${reportModeLabel(report.presentation.mode).toLocaleLowerCase()} report “${report.title}” with ID ${report.id}. The report panel was ${completed.openInBrowser ? "opened" : "left closed"}.` }],
               structuredContent: {
-                schemaVersion: "steam-desk.report-receipt/v2",
+                schemaVersion: "adaptive-interfaces.report-receipt/v2",
                 ok: true,
                 created: true,
                 saved: true,
@@ -722,7 +725,7 @@ export default function SteamSpyPage() {
             return {
               content,
               structuredContent: {
-                schemaVersion: "steam-desk.report-render/v2",
+                schemaVersion: "adaptive-interfaces.report-render/v2",
                 ok: true,
                 rendered: true,
                 report: { id: report.id, title: report.title, mode: report.presentation.mode },
@@ -781,11 +784,11 @@ export default function SteamSpyPage() {
 
   return (
     <main className="site-shell">
-      <section className="release-desk" aria-labelledby="page-title">
+      <section className="adaptive-interface" aria-labelledby="page-title">
         <header className="desk-header">
           <div>
             <p className="eyebrow"><span /> SteamSpy static snapshot</p>
-            <h1 id="page-title">Steam Desk</h1>
+            <h1 id="page-title">Adaptive Interfaces</h1>
             <p className="dek">A searchable market snapshot built from 21 locally cached SteamSpy pages.</p>
           </div>
           <div className="header-meta">
@@ -817,7 +820,7 @@ export default function SteamSpyPage() {
         <section className="prompt-guide" aria-labelledby="prompt-guide-title">
           <header>
             <div><p className="eyebrow"><span /> Ask naturally</p><h2 id="prompt-guide-title">Helpful sample prompts</h2></div>
-            <p>Start with the answer you need. Steam Desk will choose a fitting report mode.</p>
+            <p>Start with the answer you need. The interface will adapt to a fitting report mode.</p>
           </header>
           <div className="prompt-grid">
             {SAMPLE_PROMPTS.map((item) => (

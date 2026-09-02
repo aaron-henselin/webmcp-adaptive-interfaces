@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "steam-desk",
+  "name": "adaptive-interfaces",
   "main": "vinext/server/app-router-entry",
   "compatibility_date": "2026-05-22",
   "d1_databases": [

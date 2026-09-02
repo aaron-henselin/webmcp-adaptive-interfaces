@@ -58,7 +58,7 @@ export default function AudienceOnboarding({ stage, audience, connectionStatus }
   const [copied, setCopied] = useState(false);
   const audienceReady = Boolean(audience.firstName && audience.jobRole && audience.company);
   const proposalRequired = stage === "proposal_required" && audienceReady;
-  const prompt = audienceReady ? "Update my Steam Desk audience." : "Set up my Steam Desk audience.";
+  const prompt = audienceReady ? "Update my Adaptive Interfaces audience." : "Set up my Adaptive Interfaces audience.";
 
   const copyPrompt = () => {
     void navigator.clipboard.writeText(prompt).then(() => {

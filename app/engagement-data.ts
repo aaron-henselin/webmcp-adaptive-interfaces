@@ -9,7 +9,7 @@ export type EngagementMetric = {
 };
 
 export type EngagementDashboard = {
-  schemaVersion: "steam-desk.engagement-dashboard/v1";
+  schemaVersion: "adaptive-interfaces.engagement-dashboard/v1";
   filters: EngagementSourceFilters;
   comparison: { dateFrom: string; dateTo: string };
   metrics: EngagementMetric[];

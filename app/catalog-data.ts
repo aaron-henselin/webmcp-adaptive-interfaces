@@ -38,7 +38,7 @@ export type CatalogGame = {
 };
 
 export type CatalogPage = {
-  schemaVersion: "steam-desk.catalog-page/v1";
+  schemaVersion: "adaptive-interfaces.catalog-page/v1";
   meta: {
     recordCount: number;
     importedAt: string;
@@ -92,7 +92,7 @@ export type CompanyResolution = {
 };
 
 export type CompanySearchResult = {
-  schemaVersion: "steam-desk.company-search/v2";
+  schemaVersion: "adaptive-interfaces.company-search/v2";
   query: string;
   candidates: GameCompany[];
   resolution: CompanyResolution;

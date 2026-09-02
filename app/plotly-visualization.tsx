@@ -139,7 +139,7 @@ export function PlotlyCanvas({ figure }: { figure: PlotlyFigure }) {
           displaylogo: false,
           scrollZoom: false,
           modeBarButtonsToRemove: ['sendDataToCloud', 'lasso2d', 'select2d'],
-          toImageButtonOptions: { format: 'png', filename: 'steam-desk-visualization', scale: 2 },
+          toImageButtonOptions: { format: 'png', filename: 'adaptive-interface-visualization', scale: 2 },
         });
         if (active) setRenderState('ready');
       } catch {

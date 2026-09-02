@@ -120,7 +120,7 @@ export async function GET(request: Request) {
     ];
     const labels = (result: D1Result<unknown>) => result.results.map((row) => String((row as { label?: unknown }).label ?? "")).filter(Boolean);
     return NextResponse.json({
-      schemaVersion: "steam-desk.engagement-dashboard/v1",
+      schemaVersion: "adaptive-interfaces.engagement-dashboard/v1",
       filters,
       comparison: { dateFrom: previousFilters.dateFrom, dateTo: previousFilters.dateTo },
       metrics: metricRows,

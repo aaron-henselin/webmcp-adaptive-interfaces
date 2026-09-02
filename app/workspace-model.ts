@@ -51,9 +51,11 @@ export type WorkspaceOperation =
   | { op: "undo" }
   | { op: "reset" };
 
-export const WORKSPACE_KEY = "steam-desk:workspace:v2";
-export const LEGACY_WORKSPACE_KEY = "steam-desk:workspace:v1";
-const DATA_TABLE_REPORTS_KEY = "steam-desk:saved-reports:v5";
+export const WORKSPACE_KEY = "adaptive-interfaces:workspace:v2";
+export const LEGACY_WORKSPACE_KEY = "steam-desk:workspace:v2";
+const OLDER_LEGACY_WORKSPACE_KEY = "steam-desk:workspace:v1";
+const DATA_TABLE_REPORTS_KEY = "adaptive-interfaces:saved-reports:v5";
+const LEGACY_DATA_TABLE_REPORTS_KEY = "steam-desk:saved-reports:v5";
 export const MAX_WORKSPACE_BLOCKS = 32;
 export const MAX_TABS = 6;
 export const MAX_HTML_LENGTH = 2_000;
@@ -189,7 +191,7 @@ export function normalizeWorkspace(value: unknown): Workspace | null {
 
 function dataTableReportIds() {
   try {
-    const stored = window.localStorage.getItem(DATA_TABLE_REPORTS_KEY);
+    const stored = window.localStorage.getItem(DATA_TABLE_REPORTS_KEY) ?? window.localStorage.getItem(LEGACY_DATA_TABLE_REPORTS_KEY);
     const reports: unknown = stored ? JSON.parse(stored) : [];
     return new Set(Array.isArray(reports) ? reports.flatMap((report): string[] => isRecord(report) && typeof report.id === "string" ? [report.id] : []) : []);
   } catch { return new Set<string>(); }
@@ -224,10 +226,14 @@ export function loadWorkspace(): Workspace {
         return cleaned;
       }
     }
-    const previous = window.localStorage.getItem(LEGACY_WORKSPACE_KEY);
+    const previous = window.localStorage.getItem(LEGACY_WORKSPACE_KEY) ?? window.localStorage.getItem(OLDER_LEGACY_WORKSPACE_KEY);
     if (previous) {
       const workspace = normalizeWorkspace(JSON.parse(previous));
-      if (workspace) return removeDataTableReports(workspace);
+      if (workspace) {
+        const cleaned = removeDataTableReports(workspace);
+        saveWorkspace(cleaned);
+        return cleaned;
+      }
     }
     return emptyWorkspace();
   } catch { return emptyWorkspace(); }
@@ -235,6 +241,8 @@ export function loadWorkspace(): Workspace {
 
 export function saveWorkspace(workspace: Workspace) {
   window.localStorage.setItem(WORKSPACE_KEY, JSON.stringify({ ...workspace, updatedAt: new Date().toISOString() }));
+  window.localStorage.removeItem(LEGACY_WORKSPACE_KEY);
+  window.localStorage.removeItem(OLDER_LEGACY_WORKSPACE_KEY);
 }
 
 type BlockLocation = { container: WorkspaceBlock[] | LeafBlock[]; index: number; block: WorkspaceBlock };

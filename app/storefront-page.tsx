@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DemoSwitcher, { type WebMcpStatus } from "./demo-switcher";
 import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField, type StorefrontTagGroupFilter } from "./catalog-data";
-import { buildSimilarityRecoveryAction, qualifyRecommendationCandidates, resolveRecommendationQueryScope, similarityProfileForReference, type SimilarityRecoveryAction } from "./storefront-recommendation-workflow";
+import { buildSimilarityRecoveryAction, catalogQueryForRecommendation, qualifyRecommendationCandidates, resolveRecommendationQueryScope, similarityProfileForReference, type SimilarityRecoveryAction } from "./storefront-recommendation-workflow";
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
@@ -88,7 +88,7 @@ type StorefrontPageProps = { webMcpStatus: WebMcpStatus; onWebMcpStatusChange: (
 let storefrontRuntime: StorefrontRuntime | null = null;
 let privateTasteProfileState: PrivateTasteProfile | null = null;
 const storefrontRecommendations = new Map<string, PendingRecommendation>();
-const storefrontRegistrations = new WeakMap<WebMCPContext, Promise<void>>();
+const storefrontRegistrations = new WeakMap<NonNullable<Document["modelContext"]>, Promise<void>>();
 let storefrontRecoveryContext: { query: string; action: SimilarityRecoveryAction; notice: string } | null = null;
 
 const RECOMMEND_SCHEMA = {
@@ -174,6 +174,14 @@ const APPLY_RECOMMENDATION_SCHEMA = {
     recommendationId: { type: "string", minLength: 1, maxLength: 80, description: "The opaque ID returned by recommend_storefront." },
   },
   required: ["recommendationId"],
+};
+
+const APPLY_NO_RESULTS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    reason: { type: "string", maxLength: 240, description: "Optional user-facing explanation. Use only after similarity recovery is unavailable or has been exhausted." },
+  },
 };
 
 const EXCLUDE_OWNED_SCHEMA = {
@@ -1048,14 +1056,14 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
               { field: "ownersMax", weight: .2, direction: "higher", label: "player reach" },
               { field: "ccu", weight: .1, direction: "higher", label: "active players" },
             ];
-            const query = reference ? "" : progressQuery;
+            const query = reference ? "" : catalogQueryForRecommendation(progressQuery, queryScope);
             const genre = cleanText(input.genre, profile?.genres[0] ?? "", 80);
             const tag = cleanText(input.tag, profile?.tags[0] ?? "", 80);
             const price = PRICE_BANDS.includes(input.priceBand as (typeof PRICE_BANDS)[number]) ? input.priceBand as (typeof PRICE_BANDS)[number] : "All prices";
             const minRatio = typeof input.minPositiveRatio === "number" ? Math.min(1, Math.max(0, input.minPositiveRatio)) : undefined;
             const minReviews = typeof input.minReviewCount === "number" ? Math.max(0, Math.round(input.minReviewCount)) : undefined;
             const sortKey = SORTS.includes(input.sort as SortKey) ? input.sort as SortKey : nextRanking.length ? "positiveRatio" : "ownersMax";
-            const sortDirection = input.direction === "asc" ? "asc" : "desc";
+            const sortDirection: "asc" | "desc" = input.direction === "asc" ? "asc" : "desc";
             const excludeOwned = input.excludeOwnedLocally !== false;
             const currentLibrary = storefrontRuntime?.library.current ?? new Set<number>();
             const ownedIds = excludeOwned && currentLibrary.size ? [...currentLibrary].slice(0, 200) : [];
@@ -1089,7 +1097,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                     workflowStatus: "recovery_required",
                     uiUpdated: false,
                     staleResultsCleared: true,
-                    allowedNextActions: [action, { action: "broaden_search" }, { action: "apply_no_results" }],
+                    allowedNextActions: [action, { action: "broaden_search" }, { action: "apply_no_results", tool: "apply_storefront_no_results" }],
                     catalogNotice: notice,
                   },
                 };
@@ -1141,13 +1149,18 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 rankingSignals: nextRanking.map((factor) => factor.field),
                 results: qualifiedResults.map(publicGame),
                 excludedOwnedCount,
-                allowedNextActions: [{ action: "curate_shortlist", recommendationId }, { action: "apply_no_results" }],
+                allowedNextActions: [{ action: "curate_shortlist", recommendationId }],
                 ...(priorRecovery ? { recovery: { from: priorRecovery.query, reference, catalogNotice: priorRecovery.notice } } : {}),
               },
             };
           } catch (error) {
-            storefrontRuntime?.setCurationProgress(null);
-            return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Storefront recommendations could not be created." }], structuredContent: { ok: false } };
+            const message = error instanceof Error ? error.message : "Storefront recommendations could not be created.";
+            const currentRuntime = storefrontRuntime;
+            if (currentRuntime) {
+              const receipt = await currentRuntime.applyNoResults(progressQuery, "The latest storefront request could not be completed: " + message);
+              return { isError: true, content: [{ type: "text", text: message + " The storefront now shows an explicit failure state instead of older results." }], structuredContent: { ok: false, code: "RECOMMENDATION_FAILED", uiUpdated: true, ...receipt } };
+            }
+            return { isError: true, content: [{ type: "text", text: message }], structuredContent: { ok: false, code: "RECOMMENDATION_FAILED", uiUpdated: false } };
           }
         },
       },
@@ -1155,7 +1168,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         name: "curate_storefront_results",
         description: "Stage the preferred editorial presentation for one recommendation set. Use this after recommend_storefront by default for discovery, comparison, ranking, or recommendation requests; an uncurated search list is appropriate only when the user explicitly asks for raw or conventional search results. The visible storefront must match the assistant’s stated recommendation. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only when the assistant explicitly presents a shortlist, several equal options, or category winners. Do not turn supporting alternatives into co-equal featured recommendations when a single winner was stated. Give every featured game a badge and a Why it fits reason that reflects its role. This tool does not retrieve new games or change the visible UI, and every app ID is validated against the original recommendation set.",
         inputSchema: CURATE_RECOMMENDATION_SCHEMA,
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
           const recommendationId = cleanText(input.recommendationId, "", 80);
           const recommendation = storefrontRecommendations.get(recommendationId);
@@ -1214,6 +1227,32 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           return {
             content: [{ type: "text", text: "Applied “" + pending.presentation.title + "” to the visible " + pending.presentation.mode + " storefront layout." }],
             structuredContent: { schemaVersion: "adaptive-interfaces.storefront-apply-receipt/v2", ok: true, recommendationId, persistence: "session until search is cleared", ...receipt },
+          };
+        },
+      },
+      {
+        name: "apply_storefront_no_results",
+        description: "Replace the visible storefront with an explicit no-results state for the latest failed recommendation. Use only after workflowStatus recovery_required when similarity retrieval is unavailable, or after a broader recovery attempt has also failed. Do not use this to skip a reasonable similarity recovery. The tool waits for the empty state to render, ensuring an earlier recommendation cannot remain visible as the answer to the new request.",
+        inputSchema: APPLY_NO_RESULTS_SCHEMA,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
+        execute: async (input: Record<string, unknown>) => {
+          const recovery = storefrontRecoveryContext;
+          if (!recovery) return {
+            isError: true,
+            content: [{ type: "text", text: "There is no failed storefront retrieval waiting for a no-results state." }],
+            structuredContent: { ok: false, code: "RECOVERY_NOT_PENDING" },
+          };
+          const currentRuntime = storefrontRuntime;
+          if (!currentRuntime) return {
+            isError: true,
+            content: [{ type: "text", text: "The storefront page is not currently available to render the no-results state." }],
+            structuredContent: { ok: false, code: "STOREFRONT_NOT_MOUNTED" },
+          };
+          const message = cleanText(input.reason, recovery.notice + " No suitable alternatives were found.", 240);
+          const receipt = await currentRuntime.applyNoResults(recovery.query, message);
+          return {
+            content: [{ type: "text", text: "Applied an explicit no-results state for “" + recovery.query + "”." }],
+            structuredContent: { schemaVersion: "adaptive-interfaces.storefront-apply-receipt/v2", ok: true, workflowStatus: "no_results_applied", ...receipt },
           };
         },
       },

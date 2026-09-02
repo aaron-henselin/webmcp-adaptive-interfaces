@@ -55,6 +55,10 @@ export function resolveRecommendationQueryScope(value: unknown, query: string): 
   return CREATOR_QUERY.test(query) ? "creator" : "catalog";
 }
 
+export function catalogQueryForRecommendation(query: string, scope: RecommendationQueryScope) {
+  return scope === "creator" ? queryTerms(query).join(" ") : query;
+}
+
 export function qualifyRecommendationCandidates<T extends RecommendationCandidate>(
   games: T[],
   request: { query: string; queryScope: RecommendationQueryScope; hasIntentSignals: boolean },

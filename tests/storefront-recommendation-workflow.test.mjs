@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildSimilarityRecoveryAction,
+  catalogQueryForRecommendation,
   qualifyRecommendationCandidates,
   resolveRecommendationQueryScope,
   similarityProfileForReference,
@@ -40,6 +41,7 @@ test("literal title matches receive a meaningful intent score", () => {
 test("creator requests still qualify developer and publisher matches", () => {
   const query = "find games made by Valve";
   assert.equal(resolveRecommendationQueryScope(undefined, query), "creator");
+  assert.equal(catalogQueryForRecommendation(query, "creator"), "valve");
   const qualified = qualifyRecommendationCandidates([candidate({ developer: "Valve" })], {
     query,
     queryScope: "creator",

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DemoSwitcher, { type WebMcpStatus } from "./demo-switcher";
-import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField } from "./catalog-data";
+import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField, type StorefrontTagGroupFilter } from "./catalog-data";
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
 const SEARCH_SESSION_KEY = "adaptive-interfaces.storefront-search/v1";
-const CUSTOM_FACETS_KEY = "adaptive-interfaces.storefront-facets/v2";
+const CUSTOM_FACETS_KEY = "adaptive-interfaces.storefront-facets/v3";
+const PREVIOUS_CUSTOM_FACETS_KEY = "adaptive-interfaces.storefront-facets/v2";
 const LIBRARY_KEY = "adaptive-interfaces.storefront-library/v1";
 const LEGACY_SEARCH_SESSION_KEY = "steam-desk.storefront-search/v1";
 const LEGACY_CUSTOM_FACETS_KEY = "steam-desk.storefront-facets/v2";
@@ -39,10 +40,16 @@ type HighlightField = typeof HIGHLIGHT_FIELDS[number];
 type FacetBand = { id: string; label: string; min?: number; max?: number };
 type NumericCustomFacet = { kind: "numeric"; id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
 type TagCustomFacet = { kind: "tag"; id: string; label: string; tag: string };
-type CustomFacet = NumericCustomFacet | TagCustomFacet;
+type TagGroupMatch = "any" | "all";
+type FacetTagGroup = { id: string; label: string; tags: string[]; match: TagGroupMatch };
+type TagGroupsCustomFacet = { kind: "tag_groups"; id: string; label: string; groups: FacetTagGroup[]; allowOverlap: true };
+type CustomFacet = NumericCustomFacet | TagCustomFacet | TagGroupsCustomFacet;
+type ActiveTagGroupSelection = { facetId: string; facetLabel: string; group: FacetTagGroup };
 type FeaturedEditorial = { appId: number; badge: string; reason: string };
 type EditorialCuration = { headline: string; summary: string; featured: FeaturedEditorial[]; orderedAppIds: number[] };
 type SearchPresentation = { title: string; explanation: string; mode: LayoutMode; highlights: HighlightField[]; ranking: StorefrontRankingFactor[]; excludeOwned: boolean; editorial?: EditorialCuration };
+type CurationPhase = "finding" | "curating" | "ready" | "applying" | "complete";
+type CurationProgress = { phase: CurationPhase; query: string };
 type PrivateTasteProfile = { genres: string[]; tags: string[] };
 type PendingRecommendation = {
   id: string;
@@ -64,6 +71,7 @@ type StorefrontRuntime = {
   catalog: { current: CatalogPage | null };
   customFacets: { current: CustomFacet[] };
   library: { current: Set<number> };
+  setCurationProgress: (phase: CurationPhase | null, query?: string) => void;
   applyRecommendation: (recommendation: PendingRecommendation) => Promise<ApplyReceipt>;
   saveFacet: (facets: CustomFacet[]) => void;
   removeFacet: (facetId: string) => void;
@@ -212,6 +220,29 @@ const FACET_SCHEMA = {
       },
       required: ["kind", "label", "tag"],
     },
+    {
+      title: "Named tag-group facet",
+      type: "object", additionalProperties: false,
+      properties: {
+        kind: { type: "string", enum: ["tag_groups"], description: "Use tag_groups when one facet needs two or more named choices made from several catalog tags." },
+        label: { type: "string", minLength: 1, maxLength: 40, description: "The shared facet heading shown in the storefront." },
+        groups: {
+          type: "array", minItems: 2, maxItems: 8,
+          description: "Named choices. Tag lists may overlap across choices.",
+          items: {
+            type: "object", additionalProperties: false,
+            properties: {
+              label: { type: "string", minLength: 1, maxLength: 40 },
+              tags: { type: "array", minItems: 1, maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 } },
+              match: { type: "string", enum: ["any", "all"], description: "any matches at least one configured tag; all requires every configured tag." },
+            },
+            required: ["label", "tags", "match"],
+          },
+        },
+        allowOverlap: { type: "boolean", enum: [true], description: "Tag-group membership may overlap and is always enabled." },
+      },
+      required: ["kind", "label", "groups"],
+    },
   ],
 };
 
@@ -281,9 +312,28 @@ function BuyButton({ game, inLibrary, adding, onAdd }: { game: CatalogGame; inLi
   </button>;
 }
 
-type GameViewProps = { game: CatalogGame; highlights: HighlightField[]; inLibrary: boolean; adding: boolean; onAdd: (id: number) => void };
+function FacetMatchReasons({ game, selections }: { game: CatalogGame; selections: ActiveTagGroupSelection[] }) {
+  if (!selections.length) return null;
+  const matched = new Map(game.matchedTags.map((tag) => [tag.toLocaleLowerCase(), tag]));
+  return <div className="facet-match-reasons" aria-label="Why this game matches the selected groups">
+    {selections.map(({ facetId, facetLabel, group }) => {
+      const matchedTags = group.tags.flatMap((tag) => {
+        const canonicalTag = matched.get(tag.toLocaleLowerCase());
+        return canonicalTag ? [canonicalTag] : [];
+      });
+      const visibleTags = matchedTags.slice(0, 4);
+      const remainder = matchedTags.length - visibleTags.length;
+      const explanation = (group.match === "all" ? "All required tags: " : "Matched " + (matchedTags.length === 1 ? "tag: " : "tags: ")) + matchedTags.join(", ");
+      return <span key={facetId + ":" + group.id} title={facetLabel + " / " + group.label + " — " + explanation}>
+        <b>{group.label}</b><small>{group.match === "all" ? "All: " : "Via: "}{visibleTags.join(", ")}{remainder > 0 ? " +" + remainder : ""}</small>
+      </span>;
+    })}
+  </div>;
+}
 
-function FeaturedGameCard({ game, editorial, inLibrary, adding, onAdd, isBestMatch = false }: Omit<GameViewProps, "highlights"> & { editorial: FeaturedEditorial; isBestMatch?: boolean }) {
+type GameViewProps = { game: CatalogGame; highlights: HighlightField[]; tagGroupSelections: ActiveTagGroupSelection[]; inLibrary: boolean; adding: boolean; onAdd: (id: number) => void };
+
+function FeaturedGameCard({ game, editorial, tagGroupSelections, inLibrary, adding, onAdd, isBestMatch = false }: Omit<GameViewProps, "highlights"> & { editorial: FeaturedEditorial; isBestMatch?: boolean }) {
   return <article className={"store-featured-card" + (isBestMatch ? " is-best-match" : "") + (inLibrary ? " is-owned" : "")}>
     <GameArtwork game={game} />
     <div className="store-featured-copy">
@@ -293,12 +343,13 @@ function FeaturedGameCard({ game, editorial, inLibrary, adding, onAdd, isBestMat
       </div>
       <div className="store-featured-title"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
       <p className="store-featured-reason"><b>Why it fits</b>{editorial.reason}</p>
+      <FacetMatchReasons game={game} selections={tagGroupSelections} />
       <div className="store-featured-action"><strong>{formatPrice(game.priceCents)}</strong><BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} /></div>
     </div>
   </article>;
 }
 
-function GameCard({ game, highlights, inLibrary, adding, onAdd }: GameViewProps) {
+function GameCard({ game, highlights, tagGroupSelections, inLibrary, adding, onAdd }: GameViewProps) {
   const visible = highlights.length ? highlights : ["positiveRatio", "ccu"] as HighlightField[];
   return <article className={"store-card" + (inLibrary ? " is-owned" : "")}>
     <GameArtwork game={game} />
@@ -306,36 +357,37 @@ function GameCard({ game, highlights, inLibrary, adding, onAdd }: GameViewProps)
       <div className="store-card-kicker"><span>{game.genres[0] ?? "Game"}</span><b>{formatPrice(game.priceCents)}</b></div>
       <h3>{game.title}</h3><p>{game.developer}</p>
       <div className="store-card-tags">{visible.slice(0, 3).map((field) => <span key={field}>{metricValue(game, field)}</span>)}</div>
+      <FacetMatchReasons game={game} selections={tagGroupSelections} />
       <BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} />
     </div>
   </article>;
 }
 
-function GameListItem({ game, highlights, inLibrary, adding, onAdd }: GameViewProps) {
+function GameListItem({ game, highlights, tagGroupSelections, inLibrary, adding, onAdd }: GameViewProps) {
   const visible = highlights.length ? highlights : ["positiveRatio", "ownersMax"] as HighlightField[];
   return <article className={"store-list-item" + (inLibrary ? " is-owned" : "")}>
     <GameArtwork game={game} compact />
-    <div className="store-list-copy"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
+    <div className="store-list-copy"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p><FacetMatchReasons game={game} selections={tagGroupSelections} /></div>
     <div className="store-list-metrics">{visible.slice(0, 3).map((field) => <span key={field}>{metricValue(game, field)}</span>)}</div>
     <div className="store-list-action"><strong>{formatPrice(game.priceCents)}</strong><BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} /></div>
   </article>;
 }
 
-function RankingItem({ game, rank, highlights, inLibrary, adding, onAdd }: GameViewProps & { rank: number }) {
+function RankingItem({ game, rank, highlights, tagGroupSelections, inLibrary, adding, onAdd }: GameViewProps & { rank: number }) {
   const visible = highlights.length ? highlights : ["positiveRatio", "reviewCount", "ccu"] as HighlightField[];
   const score = Math.max(0, Math.min(100, Math.round(Number(game.rankScore ?? 0) * 100)));
   return <article className={"store-rank-item" + (inLibrary ? " is-owned" : "")}>
     <div className="store-rank-number">{String(rank).padStart(2, "0")}</div><GameArtwork game={game} compact />
-    <div className="store-rank-copy"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p></div>
+    <div className="store-rank-copy"><span>{game.genres.slice(0, 2).join(" · ") || "Game"}</span><h3>{game.title}</h3><p>{game.developer}</p><FacetMatchReasons game={game} selections={tagGroupSelections} /></div>
     <div className="store-rank-evidence">{visible.slice(0, 3).map((field) => <span key={field}><b>{metricValue(game, field)}</b><small>{field === "publisher" ? "publisher" : fieldLabel(field as StorefrontRankingField)}</small></span>)}</div>
     <div className="store-rank-score"><span><i style={{ width: score + "%" }} /></span><b>{score}</b><small>fit score</small></div>
     <div className="store-rank-action"><strong>{formatPrice(game.priceCents)}</strong><BuyButton game={game} inLibrary={inLibrary} adding={adding} onAdd={onAdd} /></div>
   </article>;
 }
 
-function GameTable({ games, library, addingId, onAdd }: { games: CatalogGame[]; library: Set<number>; addingId: number | null; onAdd: (id: number) => void }) {
+function GameTable({ games, tagGroupSelections, library, addingId, onAdd }: { games: CatalogGame[]; tagGroupSelections: ActiveTagGroupSelection[]; library: Set<number>; addingId: number | null; onAdd: (id: number) => void }) {
   return <div className="store-table-wrap"><table className="store-table"><thead><tr><th>Game</th><th>Reviews</th><th>Owners</th><th>Peak players</th><th>Price</th><th /></tr></thead><tbody>{games.map((game) => <tr key={game.id}>
-    <td><div className="store-table-game"><GameArtwork game={game} compact /><span><strong>{game.title}</strong><small>{game.developer}</small></span></div></td>
+    <td><div className="store-table-game"><GameArtwork game={game} compact /><span><strong>{game.title}</strong><small>{game.developer}</small><FacetMatchReasons game={game} selections={tagGroupSelections} /></span></div></td>
     <td>{formatPercent(game.positiveRatio)}</td><td>{formatCompact(game.ownersMax)}</td><td>{formatCompact(game.ccu)}</td><td>{formatPrice(game.priceCents)}</td>
     <td><BuyButton game={game} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={onAdd} /></td>
   </tr>)}</tbody></table></div>;
@@ -361,10 +413,44 @@ function StorefrontResultsSkeleton({ mode }: { mode: LayoutMode }) {
   </div>;
 }
 
+const CURATION_STEPS: Array<{ phase: CurationPhase; label: string }> = [
+  { phase: "finding", label: "Find matches" },
+  { phase: "curating", label: "Compare signals" },
+  { phase: "ready", label: "Build shortlist" },
+];
+
+function CurationProgressPanel({ progress }: { progress: CurationProgress }) {
+  const phaseIndex = progress.phase === "finding" ? 0 : progress.phase === "curating" ? 1 : 2;
+  const title = progress.phase === "finding"
+    ? "Searching the catalog"
+    : progress.phase === "curating"
+      ? "Comparing the strongest matches"
+      : progress.phase === "complete"
+        ? "Your curated list is ready"
+        : "Building your curated list";
+  return <div className={"storefront-curation-progress phase-" + progress.phase} role="status" aria-live="polite">
+    <div className="curation-progress-card">
+      <div className="curation-sorter" aria-hidden="true"><span /><span /><span /></div>
+      <div className="curation-progress-copy">
+        <span className="curation-progress-eyebrow">Browser curation</span>
+        <h3>{title}</h3>
+        <p>{progress.query ? <>Working from <strong>“{progress.query}”</strong> while your current results stay in place.</> : "Reviewing the catalog while your current results stay in place."}</p>
+      </div>
+      <ol className="curation-progress-steps" aria-label="Curation progress">
+        {CURATION_STEPS.map((step, index) => <li className={index < phaseIndex ? "is-complete" : index === phaseIndex ? "is-active" : ""} key={step.phase}>
+          <span aria-hidden="true">{index < phaseIndex || progress.phase === "complete" ? "✓" : index + 1}</span><b>{step.label}</b>
+        </li>)}
+      </ol>
+    </div>
+  </div>;
+}
+
 function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: string[], existingId?: string): CustomFacet {
   const label = cleanText(input.label, "", 40);
-  if (input.kind !== undefined && input.kind !== "numeric" && input.kind !== "tag") throw new Error("The facet kind must be numeric or tag.");
-  const kind = input.kind === "tag" || input.kind === undefined && typeof input.tag === "string" ? "tag" : "numeric";
+  if (input.kind !== undefined && input.kind !== "numeric" && input.kind !== "tag" && input.kind !== "tag_groups") throw new Error("The facet kind must be numeric, tag, or tag_groups.");
+  const kind = input.kind === "tag_groups" || input.kind === undefined && Array.isArray(input.groups)
+    ? "tag_groups"
+    : input.kind === "tag" || input.kind === undefined && typeof input.tag === "string" ? "tag" : "numeric";
   const id = cleanText(existingId, "", 80) || slug(label) + "-" + Date.now().toString(36);
   if (kind === "tag") {
     const requestedTag = cleanText(input.tag, "", 80);
@@ -372,6 +458,28 @@ function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: st
     const canonicalTag = availableTags?.find((tag) => tag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase());
     if (availableTags && !canonicalTag) throw new Error("The “" + requestedTag + "” tag is not available in this catalog.");
     return { kind: "tag", id, label, tag: canonicalTag ?? requestedTag };
+  }
+  if (kind === "tag_groups") {
+    if (!label) throw new Error("A tag-group facet needs a valid label.");
+    const canonicalTags = availableTags ? new Map(availableTags.map((tag) => [tag.toLocaleLowerCase(), tag])) : undefined;
+    const rawGroups = Array.isArray(input.groups) ? input.groups : [];
+    const groups = rawGroups.flatMap((value, index): FacetTagGroup[] => {
+      if (!isRecord(value)) return [];
+      const groupLabel = cleanText(value.label, "", 40);
+      const requestedTags = normalizedTags(value.tags);
+      if (!groupLabel || !requestedTags.length) return [];
+      if (value.match !== undefined && value.match !== "any" && value.match !== "all") throw new Error("Each tag group must use any or all matching.");
+      const tags = requestedTags.map((tag) => {
+        const canonicalTag = canonicalTags?.get(tag.toLocaleLowerCase());
+        if (canonicalTags && !canonicalTag) throw new Error("The “" + tag + "” tag is not available in this catalog.");
+        return canonicalTag ?? tag;
+      });
+      return [{ id: cleanText(value.id, "", 80) || slug(groupLabel) + "-" + index, label: groupLabel, tags, match: value.match === "all" ? "all" : "any" }];
+    });
+    if (groups.length < 2) throw new Error("A tag-group facet needs at least two named groups with one or more tags each.");
+    const labels = groups.map((group) => group.label.toLocaleLowerCase());
+    if (new Set(labels).size !== labels.length) throw new Error("Each tag group needs a unique label.");
+    return { kind: "tag_groups", id, label, groups: groups.slice(0, 8), allowOverlap: true };
   }
   const field = String(input.field ?? "") as StorefrontNumericField;
   if (!label || !NUMERIC_FIELDS.includes(field)) throw new Error("The facet needs a valid label and numeric catalog field.");
@@ -410,6 +518,13 @@ function normalizedTags(value: unknown) {
     .filter(Boolean)
     .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
     .slice(0, 12);
+}
+
+async function resolveCatalogTags(tags: string[]) {
+  const response = await fetch("/api/catalog/tags?names=" + encodeURIComponent(JSON.stringify(tags)), { cache: "no-store" });
+  const value = await response.json() as { tags?: string[]; error?: string };
+  if (!response.ok || !Array.isArray(value.tags)) throw new Error(value.error || "The catalog tags could not be checked.");
+  return value.tags;
 }
 
 function normalizeCuration(input: Record<string, unknown>, recommendation: PendingRecommendation): EditorialCuration {
@@ -489,6 +604,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const [page, setPage] = useState(0);
   const [presentation, setPresentation] = useState<SearchPresentation | null>(null);
   const [appliedRecommendation, setAppliedRecommendation] = useState<PendingRecommendation | null>(null);
+  const [curationProgress, setCurationProgressState] = useState<CurationProgress | null>(null);
   const [renderRequestVersion, setRenderRequestVersion] = useState(0);
   const [customFacets, setCustomFacets] = useState<CustomFacet[]>([]);
   const [selectedCustomBands, setSelectedCustomBands] = useState<Record<string, string>>({});
@@ -502,6 +618,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   const statusChangeRef = useRef(onWebMcpStatusChange);
   const storageLoadedRef = useRef(false);
   const timersRef = useRef<number[]>([]);
+  const curationCleanupTimerRef = useRef<number | null>(null);
   const renderWaiterRef = useRef<{ recommendationId: string; resolve: (receipt: ApplyReceipt) => void } | null>(null);
 
   useEffect(() => { catalogRef.current = catalog; }, [catalog]);
@@ -513,16 +630,22 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     return selected ? [{ field: facet.field, min: selected.min, max: selected.max }] : [];
   }), [customFacets, selectedCustomBands]);
   const requiredTags = useMemo(() => customFacets.flatMap((facet) => facet.kind === "tag" && selectedCustomBands[facet.id] === facet.tag ? [facet.tag] : []), [customFacets, selectedCustomBands]);
+  const activeTagGroupSelections = useMemo<ActiveTagGroupSelection[]>(() => customFacets.flatMap((facet) => {
+    if (facet.kind !== "tag_groups") return [];
+    const group = facet.groups.find((item) => item.id === selectedCustomBands[facet.id]);
+    return group ? [{ facetId: facet.id, facetLabel: facet.label, group }] : [];
+  }), [customFacets, selectedCustomBands]);
+  const tagGroupFilters = useMemo<StorefrontTagGroupFilter[]>(() => activeTagGroupSelections.map(({ group }) => ({ tags: group.tags, match: group.match })), [activeTagGroupSelections]);
   const ranking = presentation?.ranking ?? [];
   const ownedExclusions = useMemo(() => presentation?.excludeOwned ? [...library].slice(0, 200) : [], [library, presentation?.excludeOwned]);
-  const requestKey = JSON.stringify([search, priceBand, genre, tag, requiredTags, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
+  const requestKey = JSON.stringify([search, priceBand, genre, tag, requiredTags, tagGroupFilters, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
 
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
       try {
-        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(LEGACY_CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(OLDER_LEGACY_CUSTOM_FACETS_KEY) ?? "[]") as unknown;
+        const facets = JSON.parse(window.localStorage.getItem(CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(PREVIOUS_CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(LEGACY_CUSTOM_FACETS_KEY) ?? window.localStorage.getItem(OLDER_LEGACY_CUSTOM_FACETS_KEY) ?? "[]") as unknown;
         if (Array.isArray(facets)) {
           const valid = facets.flatMap((item): CustomFacet[] => {
             if (!isRecord(item)) return [];
@@ -557,7 +680,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
 
   useEffect(() => {
     if (!storageLoadedRef.current) return;
-    try { window.localStorage.setItem(CUSTOM_FACETS_KEY, JSON.stringify(customFacets)); window.localStorage.removeItem(LEGACY_CUSTOM_FACETS_KEY); window.localStorage.removeItem(OLDER_LEGACY_CUSTOM_FACETS_KEY); } catch { /* Session fallback. */ }
+    try { window.localStorage.setItem(CUSTOM_FACETS_KEY, JSON.stringify(customFacets)); window.localStorage.removeItem(PREVIOUS_CUSTOM_FACETS_KEY); window.localStorage.removeItem(LEGACY_CUSTOM_FACETS_KEY); window.localStorage.removeItem(OLDER_LEGACY_CUSTOM_FACETS_KEY); } catch { /* Session fallback. */ }
     customFacetsRef.current = customFacets;
   }, [customFacets]);
 
@@ -579,7 +702,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      loadCatalogPage({ search, ownerBand: "All owner ranges", priceBand, sort, direction, page, pageSize: PAGE_SIZE, genre, tag, requiredTags, minPositiveRatio, minReviewCount, numericFilters, ranking, excludeAppIds: ownedExclusions }, controller.signal)
+      loadCatalogPage({ search, ownerBand: "All owner ranges", priceBand, sort, direction, page, pageSize: PAGE_SIZE, genre, tag, requiredTags, tagGroupFilters, minPositiveRatio, minReviewCount, numericFilters, ranking, excludeAppIds: ownedExclusions }, controller.signal)
         .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(""); setResolvedKey(requestKey); } })
         .catch((error: unknown) => { if (!controller.signal.aborted) { setCatalogError(error instanceof Error ? error.message : "Store catalog unavailable."); setResolvedKey(requestKey); } });
     }, search ? 160 : 0);
@@ -588,7 +711,10 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestKey]);
 
-  useEffect(() => () => timersRef.current.forEach((timer) => window.clearTimeout(timer)), []);
+  useEffect(() => () => {
+    timersRef.current.forEach((timer) => window.clearTimeout(timer));
+    if (curationCleanupTimerRef.current) window.clearTimeout(curationCleanupTimerRef.current);
+  }, []);
 
   const copyFacetPrompt = useCallback((prompt: string) => {
     void navigator.clipboard.writeText(prompt).then(() => {
@@ -606,9 +732,21 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
 
   const clearSearch = useCallback(() => {
     setSearch(""); setPriceBand("All prices"); setGenre(""); setTag(""); setMinPositiveRatio(undefined); setMinReviewCount(undefined);
-    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setSelectedCustomBands({});
+    setSort("ownersMax"); setDirection("desc"); setPage(0); setPresentation(null); setAppliedRecommendation(null); setCurationProgressState(null); setSelectedCustomBands({});
     storefrontRecommendations.clear();
     try { window.sessionStorage.removeItem(SEARCH_SESSION_KEY); window.sessionStorage.removeItem(LEGACY_SEARCH_SESSION_KEY); } catch { /* State is reset in memory. */ }
+  }, []);
+
+  const setCurationProgress = useCallback((phase: CurationPhase | null, query?: string) => {
+    if (curationCleanupTimerRef.current) window.clearTimeout(curationCleanupTimerRef.current);
+    curationCleanupTimerRef.current = null;
+    if (!phase) { setCurationProgressState(null); return; }
+    setCurationProgressState((current) => ({ phase, query: query ?? current?.query ?? "" }));
+    const timeout = phase === "ready" ? 12_000 : 60_000;
+    curationCleanupTimerRef.current = window.setTimeout(() => {
+      curationCleanupTimerRef.current = null;
+      setCurationProgressState((current) => current?.phase === phase ? null : current);
+    }, timeout);
   }, []);
 
   const applyRecommendation = useCallback((pending: PendingRecommendation) => new Promise<ApplyReceipt>((resolve) => {
@@ -620,11 +758,12 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       editorial,
     };
     renderWaiterRef.current = { recommendationId: pending.id, resolve };
+    setCurationProgress("applying", pending.search);
     setSearch(pending.search); setPriceBand(pending.priceBand); setGenre(pending.genre); setTag(pending.tag);
     setMinPositiveRatio(pending.minPositiveRatio); setMinReviewCount(pending.minReviewCount);
     setSort(pending.sort); setDirection(pending.direction); setPresentation(pending.presentation); setAppliedRecommendation(pending); setPage(0);
     setRenderRequestVersion((version) => version + 1);
-  }), []);
+  }), [setCurationProgress]);
 
   const saveFacet = useCallback((facets: CustomFacet[]) => {
     customFacetsRef.current = facets;
@@ -641,6 +780,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       catalog: catalogRef,
       customFacets: customFacetsRef,
       library: libraryRef,
+      setCurationProgress,
       applyRecommendation,
       saveFacet,
       removeFacet,
@@ -687,7 +827,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 environment: "local storefront demonstration",
                 commerce: "No cart, checkout, order, reservation, payment, billing, or real purchase capability exists.",
                 personalData: "No tool returns owned titles, app IDs, playtime, or a derived taste profile.",
-                writes: "recommend_storefront is read-only. curate_storefront_results stages editorial metadata. apply_storefront_results changes session UI only. Facets are removable local preferences.",
+                writes: "recommend_storefront changes no result data and shows only ephemeral curation progress. curate_storefront_results stages editorial metadata and advances that progress. apply_storefront_results changes session UI only. Facets are removable local preferences.",
                 externalEffects: "Tools do not message another party or change any external service, retailer, account, or catalog record.",
               },
               guidance: [
@@ -698,12 +838,12 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
                 "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
                 "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
-                "recommend_storefront performs retrieval and returns public game records plus an opaque recommendationId without changing the UI.",
+                "recommend_storefront is the retrieval step, not the preferred final presentation. For discovery, comparison, ranking, or recommendation requests, follow it with curate_storefront_results by default so the result has an intentional headline, rationale, featured choice, reasons, and ordering. Return an uncurated search list only when the user explicitly asks for raw or conventional search results.",
                 "Use reference, includeTags, preferredTags, and excludeTags for intent relevance; rank with intentFit or tagCoverage when similarity matters.",
-                "Call curate_storefront_results separately to add a headline, overall rationale, featured badges, Why it fits reasons, and editorial ordering. Every app ID must come from the original recommendation set.",
+                "Prefer curate_storefront_results over stopping after catalog retrieval. Call it separately after recommend_storefront for ordinary discovery, comparison, ranking, and recommendation requests; skip it only for an explicit raw or conventional search-results request. Every app ID must come from the original recommendation set.",
                 "Call apply_storefront_results only when the user asked to update the visible storefront. It preserves any staged editorial metadata and waits for rendering.",
-                "Use save_storefront_facet only for a user-requested reusable facet. Choose kind tag for a catalog concept such as Family Friendly, Cozy, or Multiplayer; choose kind numeric and provide non-overlapping bands for measurable fields.",
-                "A request mentioning Mario or another franchise is an ordinary catalog discovery request. Search only the available Steam catalog and do not invent unavailable titles.",
+                "Use save_storefront_facet only for a user-requested reusable facet. Choose kind tag for one catalog concept, kind tag_groups for two or more named multi-tag choices that may overlap, or kind numeric for non-overlapping measurable bands. Tag groups compose with price and other active filters.",
+                "Treat named games as examples of the experience the user wants. If a game or franchise is not available on Steam, search for similar games that are instead of searching for the exact franchise.",
                 "Do not offer cart, checkout, ordering, payment, installation, or account access; none of those capabilities exists.",
               ],
             },
@@ -715,7 +855,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
         description: "Compare public candidate app IDs with the simulated library entirely inside the page and return only excludedCount. This never returns owned IDs, titles, playtime, or preferences. If the local library is empty, it immediately returns zero without reading catalog records.",
         inputSchema: EXCLUDE_OWNED_SCHEMA,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
-        execute: (input: Record<string, unknown>) => {
+        execute: async (input: Record<string, unknown>) => {
           const candidates = Array.isArray(input.appIds) ? input.appIds.filter((id): id is number => Number.isInteger(id) && Number(id) > 0).slice(0, 100) : [];
           const owned = storefrontRuntime?.library.current ?? new Set<number>();
           const excludedCount = owned.size ? candidates.reduce((count, id) => count + (owned.has(id) ? 1 : 0), 0) : 0;
@@ -766,9 +906,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "recommend_storefront",
-        description: "Retrieve public Steam catalog recommendations without editorializing or changing the storefront UI. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Show me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
+        description: "Retrieve public Steam catalog candidates without changing the visible result set. While retrieval and the preferred curation step are in progress, the page keeps the current results in place beneath an ephemeral progress overlay. Treat named games as examples of the experience the user wants. If a game or franchise is not available on Steam, search for similar games that are instead of searching for the exact franchise. This is a retrieval step, not the preferred final presentation: for discovery, comparison, ranking, or recommendation requests, follow it with curate_storefront_results by default. Stop at an uncurated search list only when the user explicitly asks for raw or conventional search results. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Show me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
           const personalization = input.personalization === "local_library" ? "local_library" : "none";
           const recipientContext = input.recipientContext === "self" || input.recipientContext === "someone_else" || input.recipientContext === "shared_group" ? input.recipientContext : "unspecified";
@@ -783,6 +923,8 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             content: [{ type: "text", text: "Local-library personalization is not ready. Ask the user to opt in, then call get_taste_profile first." }],
             structuredContent: { ok: false, code: "PERSONALIZATION_OPT_IN_REQUIRED" },
           };
+          const progressQuery = cleanText(input.query, "", 120);
+          storefrontRuntime?.setCurationProgress("finding", progressQuery);
           try {
             const rawPresentation = isRecord(input.presentation) ? input.presentation : {};
             const mode = LAYOUTS.includes(rawPresentation.mode as LayoutMode) ? rawPresentation.mode as LayoutMode : "ranking";
@@ -806,7 +948,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
               { field: "ownersMax", weight: .2, direction: "higher", label: "player reach" },
               { field: "ccu", weight: .1, direction: "higher", label: "active players" },
             ];
-            const query = cleanText(input.query, "", 120);
+            const query = progressQuery;
             const genre = cleanText(input.genre, profile?.genres[0] ?? "", 80);
             const tag = cleanText(input.tag, profile?.tags[0] ?? "", 80);
             const price = PRICE_BANDS.includes(input.priceBand as (typeof PRICE_BANDS)[number]) ? input.priceBand as (typeof PRICE_BANDS)[number] : "All prices";
@@ -837,8 +979,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
               sort: sortKey, direction: sortDirection, presentation: nextPresentation, results: result.games, resultTotal: result.query.total,
             };
             storefrontRecommendations.set(recommendationId, recommendation);
+            storefrontRuntime?.setCurationProgress("curating", query);
             return {
-              content: [{ type: "text", text: "Found " + result.games.length + " public game recommendations without changing the storefront." }],
+              content: [{ type: "text", text: "Found " + result.games.length + " public game candidates without changing the storefront. Prefer calling curate_storefront_results next; stop here only if the user explicitly requested raw or conventional search results." }],
               structuredContent: {
                 schemaVersion: "adaptive-interfaces.storefront-recommendations/v1",
                 ok: true,
@@ -851,13 +994,14 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
               },
             };
           } catch (error) {
+            storefrontRuntime?.setCurationProgress(null);
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Storefront recommendations could not be created." }], structuredContent: { ok: false } };
           }
         },
       },
       {
         name: "curate_storefront_results",
-        description: "Stage editorial curation for one recommendation set. The visible storefront must match the assistant’s stated recommendation. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only when the assistant explicitly presents a shortlist, several equal options, or category winners. Do not turn supporting alternatives into co-equal featured recommendations when a single winner was stated. Give every featured game a badge and a Why it fits reason that reflects its role. This tool does not retrieve new games or change the visible UI, and every app ID is validated against the original recommendation set.",
+        description: "Stage the preferred editorial presentation for one recommendation set. Use this after recommend_storefront by default for discovery, comparison, ranking, or recommendation requests; an uncurated search list is appropriate only when the user explicitly asks for raw or conventional search results. The visible storefront must match the assistant’s stated recommendation. If the assistant names one decisive winner—for example, “Play X next,” “X is my pick,” or “X is the best choice”—include exactly that game in featured and place it first in orderedAppIds. Keep other games as unfeatured alternatives. Use multiple featured games only when the assistant explicitly presents a shortlist, several equal options, or category winners. Do not turn supporting alternatives into co-equal featured recommendations when a single winner was stated. Give every featured game a badge and a Why it fits reason that reflects its role. This tool does not retrieve new games or change the visible UI, and every app ID is validated against the original recommendation set.",
         inputSchema: CURATE_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: (input: Record<string, unknown>) => {
@@ -869,8 +1013,10 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             structuredContent: { ok: false, code: "RECOMMENDATION_NOT_FOUND" },
           };
           try {
+            storefrontRuntime?.setCurationProgress("curating", recommendation.search);
             const curation = normalizeCuration(input, recommendation);
             recommendation.curation = curation;
+            storefrontRuntime?.setCurationProgress("ready", recommendation.search);
             return {
               content: [{ type: "text", text: "Curated “" + curation.headline + "” using only games from the original recommendation set." }],
               structuredContent: {
@@ -883,6 +1029,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
               },
             };
           } catch (error) {
+            storefrontRuntime?.setCurationProgress(null);
             return {
               isError: true,
               content: [{ type: "text", text: error instanceof Error ? error.message : "The recommendation could not be curated." }],
@@ -893,7 +1040,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "apply_storefront_results",
-        description: "Apply one staged recommendation to the visible storefront session, preserving its editorial summary, featured badges, Why it fits reasons, and ordering. Featured games render before the algorithmic list. The tool waits for the UI render to commit before returning. This cannot purchase, install, access an account, or write to an external service.",
+        description: "Apply one staged recommendation to the visible storefront session. Prefer applying after curate_storefront_results so the storefront preserves an editorial summary, featured badges, Why it fits reasons, and intentional ordering; apply an uncurated recommendation only when the user explicitly asked for raw or conventional search results. Featured games render before the algorithmic list. The tool waits for the UI render to commit before returning. This cannot purchase, install, access an account, or write to an external service.",
         inputSchema: APPLY_RECOMMENDATION_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -919,22 +1066,28 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "save_storefront_facet",
-        description: "Add a user-requested reusable storefront facet. Use a tag facet for catalog concepts such as “family friendly,” Cozy, or Multiplayer; for “Add a facet so I can see what games are family friendly,” set kind to tag and tag to Family Friendly. Use a numeric facet with non-overlapping bands for price, activity, playtime, reviews, owners, or release year. A tag facet matches Steam catalog metadata and is not an age rating or guarantee of suitability. This saves only a removable preference in this browser's local storage and does not change an account, retailer, catalog, order, or external service.",
+        description: "Add a user-requested reusable storefront facet. Use tag for one catalog concept, tag_groups for one categorical facet with two or more named choices made from multiple tags, or numeric for non-overlapping measurable bands. Each tag group supports any or all matching, and tags may overlap across groups. Active groups compose with price and other filters. Tag matches reflect Steam catalog metadata, not an age rating or suitability guarantee. This saves only a removable preference in this browser's local storage and does not change an account, retailer, catalog, order, or external service.",
         inputSchema: FACET_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
-        execute: (input: Record<string, unknown>) => {
+        execute: async (input: Record<string, unknown>) => {
           try {
             const currentRuntime = storefrontRuntime;
             if (!currentRuntime) throw new Error("The storefront page is not currently available.");
-            const availableTags = currentRuntime.catalog.current?.facets.tags.map((item) => item.label);
-            const wantsTagFacet = input.kind === "tag" || input.kind === undefined && typeof input.tag === "string";
-            if (wantsTagFacet && !availableTags) throw new Error("The catalog tags are still loading. Try adding the facet again.");
+            const wantsTagFacet = input.kind === "tag" || input.kind === "tag_groups" || input.kind === undefined && (typeof input.tag === "string" || Array.isArray(input.groups));
+            const requestedTags = wantsTagFacet
+              ? input.kind === "tag" || input.kind === undefined && typeof input.tag === "string"
+                ? [cleanText(input.tag, "", 80)].filter(Boolean)
+                : (Array.isArray(input.groups) ? input.groups : []).flatMap((group) => isRecord(group) ? normalizedTags(group.tags) : [])
+              : [];
+            const availableTags = wantsTagFacet ? await resolveCatalogTags(requestedTags) : undefined;
             const facet = normalizeCustomFacet(input, wantsTagFacet ? availableTags : undefined);
             const next = [facet, ...currentRuntime.customFacets.current].slice(0, 8);
             currentRuntime.saveFacet(next);
             const message = facet.kind === "tag"
               ? "Added the local “" + facet.label + "” facet for games tagged “" + facet.tag + ".”"
-              : "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands.";
+              : facet.kind === "tag_groups"
+                ? "Added the local “" + facet.label + "” facet with " + facet.groups.length + " overlapping tag groups."
+                : "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands.";
             return { content: [{ type: "text", text: message }], structuredContent: { schemaVersion: "adaptive-interfaces.storefront-facet-receipt/v2", ok: true, saved: true, storage: "local", facet } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The custom facet could not be saved." }], structuredContent: { ok: false } };
@@ -972,7 +1125,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       .then(() => statusChangeRef.current("connected"))
       .catch(() => statusChangeRef.current("preview"));
     return () => { if (storefrontRuntime === runtime) storefrontRuntime = null; };
-  }, [applyRecommendation, clearSearch, removeFacet, saveFacet]);
+  }, [applyRecommendation, clearSearch, removeFacet, saveFacet, setCurationProgress]);
 
   const addToLibrary = useCallback((id: number) => {
     if (library.has(id) || addingId !== null) return;
@@ -1023,6 +1176,10 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       secondFrame = window.requestAnimationFrame(() => {
         if (renderWaiterRef.current !== waiter) return;
         renderWaiterRef.current = null;
+        if (curationCleanupTimerRef.current) window.clearTimeout(curationCleanupTimerRef.current);
+        curationCleanupTimerRef.current = null;
+        setCurationProgressState((current) => current ? { ...current, phase: "complete" } : null);
+        timersRef.current.push(window.setTimeout(() => setCurationProgressState((current) => current?.phase === "complete" ? null : current), 280));
         waiter.resolve({
           rendered: true,
           featuredAppIds: featuredGames.map((item) => item.game.id),
@@ -1056,17 +1213,27 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
           <fieldset><legend>Genre</legend><select value={genre} onChange={(event) => { setGenre(event.target.value); setPage(0); }}><option value="">All genres</option>{(catalog?.facets.genres ?? []).slice(0, 28).map((item) => <option key={item.label} value={item.label}>{item.label}</option>)}</select></fieldset>
           <details className="facet-add"><summary><span className="facet-add-copy"><small>Browser-powered</small><b>Add a facet</b></span><span className="facet-add-icon" aria-hidden="true">+</span></summary><section className="facet-prompt-menu" role="dialog" aria-modal="false" aria-labelledby="facet-prompt-title"><header><span>Browser shortcut</span><h2 id="facet-prompt-title">You can say</h2><p>Your browser will configure and save the facet here.</p></header><div>{FACET_PROMPTS.map((item) => <button type="button" key={item.prompt} onClick={() => copyFacetPrompt(item.prompt)}><span>{item.label}</span><b>“{item.prompt}”</b><small>{copiedFacetPrompt === item.prompt ? "Copied ✓" : "Copy prompt ↗"}</small></button>)}</div></section></details>
           <fieldset><legend>Popular tags</legend><div className="facet-chips">{(catalog?.facets.tags ?? []).slice(0, 9).map((item) => <button type="button" className={tag === item.label ? "active" : ""} key={item.label} onClick={() => { setTag((value) => value === item.label ? "" : item.label); setPage(0); }}>{item.label}</button>)}</div></fieldset>
-          {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}><legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => removeFacet(facet.id)}>×</button></legend><div className="facet-options"><button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>{facet.kind === "numeric" ? facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>) : <button type="button" className={selectedCustomBands[facet.id] === facet.tag ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: facet.tag })); setPage(0); }}>{facet.tag}</button>}</div><small>{facet.kind === "numeric" ? fieldLabel(facet.field) : "Catalog tag"} · saved in this browser</small></fieldset>)}
+          {customFacets.map((facet) => <fieldset className="custom-facet" key={facet.id}>
+            <legend><span>{facet.label}</span><button type="button" aria-label={"Remove " + facet.label + " facet"} onClick={() => removeFacet(facet.id)}>×</button></legend>
+            <div className="facet-options">
+              <button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>
+              {facet.kind === "numeric" ? facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>)
+                : facet.kind === "tag" ? <button type="button" className={selectedCustomBands[facet.id] === facet.tag ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: facet.tag })); setPage(0); }}>{facet.tag}</button>
+                  : facet.groups.map((group) => <button type="button" className={selectedCustomBands[facet.id] === group.id ? "active" : ""} key={group.id} title={(group.match === "all" ? "All of: " : "Any of: ") + group.tags.join(", ")} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: group.id })); setPage(0); }}><b>{group.label}</b><small>{group.match === "all" ? "All of " : "Any of "}{group.tags.length} tags</small></button>)}
+            </div>
+            <small>{facet.kind === "numeric" ? fieldLabel(facet.field) : facet.kind === "tag" ? "Catalog tag" : "Named tag groups · overlap allowed"} · saved in this browser</small>
+          </fieldset>)}
         </aside> : null}
 
-        <section className="storefront-results" aria-busy={loading} aria-live="polite">
+        <section className="storefront-results" aria-busy={loading || Boolean(curationProgress)} aria-live="polite">
           <div className="storefront-results-bar"><div><strong>{loading ? "Updating…" : total.toLocaleString() + " games"}</strong><span>{presentation ? activeMode + " view selected for this search" : "Conventional store results"}</span></div><div><span>{library.size} in library</span><b>{activeMode}</b></div></div>
+          {curationProgress ? <CurationProgressPanel progress={curationProgress} /> : null}
           {loading ? <StorefrontResultsSkeleton mode={activeMode} /> : catalogError && !appliedRecommendation ? <div className="storefront-empty"><strong>Store catalog unavailable</strong><p>{catalogError}</p></div> : !games.length ? <div className="storefront-empty"><strong>No games match this search</strong><p>Clear a filter or try broader terms.</p><button type="button" onClick={clearSearch}>Clear search</button></div> : <>
             {featuredGames.length ? <section className={"store-featured" + (featuredGames.length === 1 ? " is-single" : "")} aria-labelledby="store-featured-title">
               <div className="store-featured-heading"><span>{featuredGames.length === 1 ? "Curated standout" : "Curated shortlist"}</span><h3 id="store-featured-title">{featuredGames.length === 1 ? "Our best match for you" : "Top picks for you"}</h3></div>
-              <div className="store-featured-grid">{featuredGames.map(({ game, editorial: item }) => <FeaturedGameCard key={game.id} game={game} editorial={item} isBestMatch={featuredGames.length === 1} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>
+              <div className="store-featured-grid">{featuredGames.map(({ game, editorial: item }) => <FeaturedGameCard key={game.id} game={game} editorial={item} tagGroupSelections={activeTagGroupSelections} isBestMatch={featuredGames.length === 1} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div>
             </section> : null}
-            {algorithmicGames.length ? activeMode === "table" ? <GameTable games={algorithmicGames} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{algorithmicGames.map((game, index) => <RankingItem key={game.id} game={game} rank={featuredGames.length + visiblePage * PAGE_SIZE + index + 1} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{algorithmicGames.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{algorithmicGames.map((game) => <GameCard key={game.id} game={game} highlights={highlights} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : null}
+            {algorithmicGames.length ? activeMode === "table" ? <GameTable games={algorithmicGames} tagGroupSelections={activeTagGroupSelections} library={library} addingId={addingId} onAdd={addToLibrary} /> : activeMode === "ranking" ? <div className="store-ranking">{algorithmicGames.map((game, index) => <RankingItem key={game.id} game={game} rank={featuredGames.length + visiblePage * PAGE_SIZE + index + 1} highlights={highlights} tagGroupSelections={activeTagGroupSelections} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : activeMode === "list" ? <div className="store-list">{algorithmicGames.map((game) => <GameListItem key={game.id} game={game} highlights={highlights} tagGroupSelections={activeTagGroupSelections} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : <div className="store-grid">{algorithmicGames.map((game) => <GameCard key={game.id} game={game} highlights={highlights} tagGroupSelections={activeTagGroupSelections} inLibrary={library.has(game.id)} adding={addingId === game.id} onAdd={addToLibrary} />)}</div> : null}
           </>}
           <footer className="store-pagination"><span>{loading ? "Updating results…" : "Showing " + resultStart.toLocaleString() + "–" + resultEnd.toLocaleString() + " of " + total.toLocaleString()}</span><div><button type="button" disabled={loading || visiblePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>←</button><span>Page {visiblePage + 1} / {totalPages}</span><button type="button" disabled={loading || visiblePage >= totalPages - 1} onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}>→</button></div></footer>
         </section>

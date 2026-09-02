@@ -3,6 +3,7 @@ export type StorefrontIntentField = "intentFit" | "tagCoverage";
 export type StorefrontRankingField = StorefrontNumericField | StorefrontIntentField;
 export type StorefrontRankingFactor = { field: StorefrontRankingField; weight: number; direction: "higher" | "lower"; label?: string };
 export type StorefrontNumericFilter = { field: StorefrontNumericField; min?: number; max?: number };
+export type StorefrontTagGroupFilter = { tags: string[]; match: "any" | "all" };
 export type CatalogFilterOperator = "equal" | "notEqual" | "greaterThan" | "greaterOrEqual" | "lessThan" | "lessOrEqual" | "in" | "contains";
 export type CatalogFilterValue = string | number | boolean | null | Array<string | number | boolean>;
 export type CatalogFilter = { field: string; operator: CatalogFilterOperator; value: CatalogFilterValue };
@@ -35,6 +36,7 @@ export type CatalogGame = {
   tagCoverage?: number | null;
   genres: string[];
   tags: string[];
+  matchedTags: string[];
 };
 
 export type CatalogPage = {
@@ -62,6 +64,7 @@ export type CatalogPageOptions = {
   genre?: string;
   tag?: string;
   requiredTags?: string[];
+  tagGroupFilters?: StorefrontTagGroupFilter[];
   filters?: CatalogFilter[];
   minPositiveRatio?: number;
   minReviewCount?: number;
@@ -123,6 +126,7 @@ export async function loadCatalogPage(options: CatalogPageOptions, signal?: Abor
   if (options.genre) params.set("genre", options.genre);
   if (options.tag) params.set("tag", options.tag);
   if (options.requiredTags?.length) params.set("requiredTags", JSON.stringify(options.requiredTags));
+  if (options.tagGroupFilters?.length) params.set("tagGroupFilters", JSON.stringify(options.tagGroupFilters));
   if (options.filters?.length) params.set("filters", JSON.stringify(options.filters));
   if (options.minPositiveRatio !== undefined) params.set("minPositiveRatio", String(options.minPositiveRatio));
   if (options.minReviewCount !== undefined) params.set("minReviewCount", String(options.minReviewCount));

@@ -80,6 +80,7 @@ const RANK_NORMALIZERS: Record<keyof typeof NUMERIC_FIELDS, string> = {
 };
 
 type SqlExpression = { sql: string; values: Array<string | number> };
+type TagGroupFilter = { tags: string[]; match: "any" | "all" };
 
 function boundedInteger(value: string | null, fallback: number, minimum: number, maximum: number) {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -111,6 +112,20 @@ function normalizedTextArray(value: string | null, limit: number) {
     .filter(Boolean)
     .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
     .slice(0, limit);
+}
+
+function tagGroupFilters(value: string | null): TagGroupFilter[] {
+  return parseArray(value).flatMap((filter): TagGroupFilter[] => {
+    if (!filter || typeof filter !== "object" || Array.isArray(filter)) return [];
+    const item = filter as Record<string, unknown>;
+    const rawTags = Array.isArray(item.tags) ? item.tags : [];
+    const tags = rawTags
+      .map((tag) => String(tag).trim().replace(/\s+/g, " ").slice(0, 80))
+      .filter(Boolean)
+      .filter((tag, index, values) => values.findIndex((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()) === index)
+      .slice(0, 12);
+    return tags.length ? [{ tags, match: item.match === "all" ? "all" : "any" }] : [];
+  }).slice(0, 8);
 }
 
 function filterPrimitive(value: unknown): string | number | boolean | null | undefined {
@@ -223,7 +238,7 @@ function rankingExpression(value: string | null, intent: ReturnType<typeof inten
   return { sql: `(${terms.join(" + ")}) / ${totalWeight.toFixed(4)}`, values };
 }
 
-function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpressions>) {
+function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpressions>, selectedTagGroups: TagGroupFilter[]) {
   const clauses: string[] = [];
   const values: Array<string | number> = [];
   const search = ftsQuery((params.get("search") ?? "").slice(0, 120));
@@ -284,6 +299,15 @@ function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpres
     clauses.push("EXISTS (SELECT 1 FROM game_tags required_gt JOIN tags required_t ON required_t.id = required_gt.tag_id WHERE required_gt.app_id = g.app_id AND LOWER(required_t.name) = LOWER(?))");
     values.push(requiredTag);
   }
+  for (const group of selectedTagGroups) {
+    if (group.match === "any") {
+      clauses.push(`g.app_id IN (SELECT group_gt.app_id FROM game_tags group_gt JOIN tags group_t ON group_t.id = group_gt.tag_id WHERE LOWER(group_t.name) IN (${group.tags.map(() => "LOWER(?)").join(", ")}))`);
+      values.push(...group.tags);
+      continue;
+    }
+    clauses.push(`g.app_id IN (SELECT group_gt.app_id FROM game_tags group_gt JOIN tags group_t ON group_t.id = group_gt.tag_id WHERE LOWER(group_t.name) IN (${group.tags.map(() => "LOWER(?)").join(", ")}) GROUP BY group_gt.app_id HAVING COUNT(DISTINCT LOWER(group_t.name)) = ?)`);
+    values.push(...group.tags, group.tags.length);
+  }
   if (minPositiveRatio >= 0) {
     clauses.push("g.positive_ratio >= ?");
     values.push(minPositiveRatio);
@@ -338,7 +362,13 @@ export async function GET(request: Request) {
     const ranking = rankingExpression(url.searchParams.get("ranking"), intent);
     const sortSql = ranking ? "rankScore" : SORT_FIELDS[sort] ?? SORT_FIELDS.ownersMax;
     const direction = ranking ? "DESC" : url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
-    const where = filters(url.searchParams, intent);
+    const selectedTagGroups = tagGroupFilters(url.searchParams.get("tagGroupFilters"));
+    const where = filters(url.searchParams, intent, selectedTagGroups);
+    const selectedGroupTags = selectedTagGroups.flatMap((group) => group.tags)
+      .filter((tag, index, tags) => tags.findIndex((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()) === index);
+    const matchedTagsSql = selectedGroupTags.length
+      ? `COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags matched_gt JOIN tags t ON t.id = matched_gt.tag_id WHERE matched_gt.app_id = g.app_id AND LOWER(t.name) IN (${selectedGroupTags.map(() => "LOWER(?)").join(", ")}) ORDER BY matched_gt.weight DESC, t.name)), '[]')`
+      : "'[]'";
     const database = catalogDb();
     const pageSql = `SELECT
       g.app_id AS id,
@@ -367,7 +397,8 @@ export async function GET(request: Request) {
       ${intent.intentFit.sql} AS intentFit,
       ${intent.tagCoverage.sql} AS tagCoverage,
       COALESCE((SELECT json_group_array(name) FROM (SELECT ge.name FROM game_genres gg JOIN genres ge ON ge.id = gg.genre_id WHERE gg.app_id = g.app_id AND lower(trim(ge.name)) <> 'sexual content' ORDER BY ge.name)), '[]') AS genres,
-      COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id ORDER BY gt.weight DESC, t.name LIMIT 12)), '[]') AS tags
+      COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags gt JOIN tags t ON t.id = gt.tag_id WHERE gt.app_id = g.app_id ORDER BY gt.weight DESC, t.name LIMIT 12)), '[]') AS tags,
+      ${matchedTagsSql} AS matchedTags
     FROM games g
     ${where.sql}
     ORDER BY ${sortSql} ${direction}, g.app_id ASC
@@ -375,7 +406,7 @@ export async function GET(request: Request) {
 
     const statements = [
       database.prepare(`SELECT COUNT(*) AS total FROM games g ${where.sql}`).bind(...where.values),
-      database.prepare(pageSql).bind(...(ranking?.values ?? []), ...intent.intentFit.values, ...intent.tagCoverage.values, ...where.values, pageSize, page * pageSize),
+      database.prepare(pageSql).bind(...(ranking?.values ?? []), ...intent.intentFit.values, ...intent.tagCoverage.values, ...selectedGroupTags, ...where.values, pageSize, page * pageSize),
       database.prepare("SELECT schema_version AS schemaVersion, source_filename AS sourceFilename, source_sha256 AS sourceSha256, imported_at AS importedAt, record_count AS recordCount FROM catalog_imports ORDER BY id DESC LIMIT 1"),
       database.prepare(`SELECT g.owners AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY g.owners ORDER BY MAX(g.owners_max) DESC`).bind(...where.values),
       database.prepare(`SELECT ${REVIEW_BAND_SQL} AS label, COUNT(*) AS value FROM games g ${where.sql} GROUP BY label ORDER BY MIN(CASE label WHEN '95%+ positive' THEN 1 WHEN '90–94% positive' THEN 2 WHEN '80–89% positive' THEN 3 WHEN '70–79% positive' THEN 4 WHEN 'Below 70%' THEN 5 ELSE 6 END)`).bind(...where.values),
@@ -386,7 +417,7 @@ export async function GET(request: Request) {
     const [countResult, gamesResult, importResult, ownersResult, reviewsResult, priceResult, genresResult, tagsResult] = await database.batch(statements);
     const total = Number((countResult.results[0] as { total?: number } | undefined)?.total ?? 0);
     const imported = importResult.results[0] as Record<string, unknown> | undefined;
-    const games = (gamesResult.results as Array<Record<string, unknown>>).map((game) => ({ ...game, genres: parseDbJsonArray(game.genres), tags: parseDbJsonArray(game.tags) }));
+    const games = (gamesResult.results as Array<Record<string, unknown>>).map((game) => ({ ...game, genres: parseDbJsonArray(game.genres), tags: parseDbJsonArray(game.tags), matchedTags: parseDbJsonArray(game.matchedTags) }));
     return NextResponse.json({
       schemaVersion: "adaptive-interfaces.catalog-page/v1",
       meta: {

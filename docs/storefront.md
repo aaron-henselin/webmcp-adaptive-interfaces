@@ -15,17 +15,17 @@ That made an ordinary public-catalog search look like an unnecessary personal-da
 | `describe_storefront` | Public schema, capabilities, safety rules, and the boolean `personalizationAvailable` signal | Returns no library titles, IDs, playtime, taste preferences, or profile data | None |
 | `exclude_owned_games` | `excludedCount` only | Matches public candidate IDs inside the page; returns no owned IDs or titles | None |
 | `get_taste_profile` | Only whether private personalization is ready | Requires explicit user opt-in and a game the user is choosing or buying for themselves; computes the profile inside the page and returns no library, playtime, preferences, or profile fields | None |
-| `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | None |
-| `curate_storefront_results` | A validated editorial-curation receipt | Uses only public app IDs from the original recommendation set | None; stages headline, summary, featured badges, reasons, and ordering |
+| `recommend_storefront` | Public game records, intent scores, `excludedOwnedCount`, and an opaque `recommendationId` | Defaults to `personalization: "none"`; optional owned filtering remains inside the page | Keeps the current results in place and starts an ephemeral curation-progress overlay |
+| `curate_storefront_results` | A validated editorial-curation receipt | Uses only public app IDs from the original recommendation set | Advances the progress overlay; stages headline, summary, featured badges, reasons, and ordering |
 | `apply_storefront_results` | A render-completion receipt with featured and visible app IDs | Reads no additional personal data | Changes only session-scoped filters, ranking, editorial presentation, and layout |
-| `save_storefront_facet` | The saved numeric-band or catalog-tag facet | Reads no library data | Saves a removable browser preference |
+| `save_storefront_facet` | The saved numeric-band, catalog-tag, or named tag-group facet | Reads no library data | Saves a removable browser preference |
 | `remove_storefront_facet` | The removed facet ID | Reads no library data | Removes one browser preference |
 
 The deprecated `get_storefront_library` and `search_storefront` tools are no longer registered.
 
 ## Reusable facets
 
-`save_storefront_facet` accepts two explicit facet kinds. Numeric facets divide one measurable catalog field into at least two non-overlapping bands. Tag facets add an **Any** choice and one reusable catalog-tag filter. For example, “Add a facet so I can see what games are family friendly” maps to:
+`save_storefront_facet` accepts three explicit facet kinds. Numeric facets divide one measurable catalog field into at least two non-overlapping bands. Tag facets add an **Any** choice and one reusable catalog-tag filter. Named tag-group facets create one categorical facet with two or more choices; each choice can require any or all of several tags, and tag lists may overlap. Active tag groups compose with price and other filters. For example, “Add a facet so I can see what games are family friendly” maps to:
 
 ```json
 {
@@ -37,14 +37,38 @@ The deprecated `get_storefront_library` and `search_storefront` tools are no lon
 
 Tag names are matched case-insensitively and saved with the catalog's canonical spelling. A Family Friendly tag reflects Steam catalog metadata; it is not an age rating or a guarantee that every player will consider the game suitable.
 
+A reusable gift-recipient facet can be saved as:
+
+```json
+{
+  "kind": "tag_groups",
+  "label": "Gift recipient",
+  "groups": [
+    {
+      "label": "Gifts for Jason",
+      "tags": ["Puzzle", "First-Person", "Logic", "Atmospheric"],
+      "match": "any"
+    },
+    {
+      "label": "Gifts for Brian",
+      "tags": ["Strategy", "Turn-Based", "Card Game", "Deckbuilding"],
+      "match": "any"
+    }
+  ],
+  "allowOverlap": true
+}
+```
+
+Selecting a group filters by its saved rule. Games can match more than one group, and each visible result identifies the group and catalog tags responsible for the match. To add a budget such as “under $20,” combine the selected gift group with a numeric `priceCents` facet; the filters are applied together.
+
 ## Agent workflow
 
 For an ordinary discovery, comparison, or ranking request:
 
 1. Call `recommend_storefront` with `personalization: "none"`. Do not call `get_taste_profile`. For similarity requests, express the reference separately and supply positive, preferred, and excluded tags.
 2. Keep `excludeOwnedLocally: true` unless the user asks to include owned games. Matching happens inside the page and only the count is returned. When the library is empty, this path immediately skips owned-data matching.
-3. Present the returned public game records.
-4. If an editorial presentation is useful, call `curate_storefront_results` with only app IDs returned by that recommendation.
+3. Treat retrieval as an intermediate step. By default, call `curate_storefront_results` with only app IDs returned by that recommendation, then present the curated result with an intentional headline, rationale, featured choice, reasons, and ordering.
+4. Stop after retrieval and present a plain search list only when the user explicitly asks for raw or conventional search results.
 5. Call `apply_storefront_results` with the returned `recommendationId` only when the user asked to change the visible storefront. It resolves after the summary, featured cards, and ordered list have rendered.
 
 Example:
@@ -70,7 +94,7 @@ Example:
 
 The include tags require at least one relevant match, excluded tags are hard exclusions, and `intentFit` and `tagCoverage` keep weak but popular matches from dominating the list.
 
-Editorial curation is a separate call:
+Editorial curation is a separate call and the preferred default after retrieval:
 
 ```json
 {

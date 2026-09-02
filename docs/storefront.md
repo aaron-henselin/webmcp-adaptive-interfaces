@@ -127,7 +127,7 @@ The library taste profile applies only when the user is choosing or buying the r
 
 When the recipient is the user and that signal is true, ask once whether they want library-based personalization before recommending. If they decline, if they request an immediate answer, or if the signal is false, continue with `personalization: "none"`. Never offer library personalization for `someone_else` or `shared_group`.
 
-- “Find me a game” → offer personalization once.
+- “Show me a game” → offer personalization once.
 - “Find my nephew a game” → do not offer; use public data.
 - “Use my library” → treat this as explicit consent and call `get_taste_profile`.
 - “Just recommend something” → skip the question and use public data.

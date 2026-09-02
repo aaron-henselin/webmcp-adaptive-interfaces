@@ -25,7 +25,7 @@ const FACET_PROMPTS = [
   { label: "Release", prompt: "Add a facet for release year that separates new, recent, and classic games." },
 ] as const;
 const STORE_PROMPTS = [
-  { label: "Set a vibe", prompt: "Find me a cozy game I can finish in a weekend." },
+  { label: "Set a vibe", prompt: "Show me a cozy game I can finish in a weekend." },
   { label: "Play together", prompt: "Show me a great co-op game under $20." },
   { label: "Pick one", prompt: "Suggest my next great game" },
 ] as const;
@@ -690,7 +690,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 "For a self-directed request, when personalizationAvailable is true, ask once whether the user wants library-based personalization before recommending.",
                 "If the user declines, requests an immediate answer, or personalizationAvailable is false, continue immediately with personalization none.",
                 "Never offer library personalization for recipientContext someone_else or shared_group. Keep personalization none for those requests and for an unclear recipient.",
-                "Examples: “Find me a game” → offer personalization once; “Find my nephew a game” → do not offer and use public data; “Use my library” → explicit consent, so call get_taste_profile; “Just recommend something” → skip the question and use public data.",
+                "Examples: “Show me a game” → offer personalization once; “Find my nephew a game” → do not offer and use public data; “Use my library” → explicit consent, so call get_taste_profile; “Just recommend something” → skip the question and use public data.",
                 "Owned-game exclusion is local and returns only excludedOwnedCount. When the visible library count is zero, the page skips owned-data matching.",
                 "Library taste personalization applies only when the user is choosing or buying a game for themselves. For a gift, another person, a household or group, or an unclear recipient, keep personalization none.",
                 "Only call get_taste_profile after the user explicitly agrees to use the locally saved library for this self-directed choice. The profile remains private inside the page.",
@@ -762,7 +762,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "recommend_storefront",
-        description: "Retrieve public Steam catalog recommendations without editorializing or changing the storefront UI. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Find me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
+        description: "Retrieve public Steam catalog recommendations without editorializing or changing the storefront UI. Consent protocol before recommending: when recipientContext is self and describe_storefront reports personalizationAvailable true, ask once whether the user wants library-based personalization. If they agree—or explicitly say “Use my library”—call get_taste_profile first, then use personalization local_library. If they decline, if they request an immediate answer (for example, “Just recommend something”), or if personalization is unavailable, continue immediately with personalization none. Never offer library personalization for someone_else or shared_group; use public data with personalization none. Examples: “Show me a game” → offer once; “Find my nephew a game” → do not offer; “Use my library” → explicit consent and call get_taste_profile; “Just recommend something” → skip the question. Use reference, includeTags, preferredTags, and excludeTags to express intent, and intentFit or tagCoverage as ranking factors. Owned-game exclusion happens inside the page and returns only excludedOwnedCount; no owned titles, IDs, playtime, preferences, or taste data are disclosed.",
         inputSchema: RECOMMEND_SCHEMA,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {

@@ -1,9 +1,12 @@
+import type { StorefrontTagGroupFilter } from "./storefront-tag-groups";
+
+export type { StorefrontTagGroupFilter } from "./storefront-tag-groups";
+
 export type StorefrontNumericField = "positiveRatio" | "reviewCount" | "priceCents" | "ownersMax" | "ccu" | "averageForever" | "releaseYear";
 export type StorefrontIntentField = "intentFit" | "tagCoverage";
 export type StorefrontRankingField = StorefrontNumericField | StorefrontIntentField;
 export type StorefrontRankingFactor = { field: StorefrontRankingField; weight: number; direction: "higher" | "lower"; label?: string };
 export type StorefrontNumericFilter = { field: StorefrontNumericField; min?: number; max?: number };
-export type StorefrontTagGroupFilter = { tags: string[]; match: "any" | "all" };
 export type CatalogFilterOperator = "equal" | "notEqual" | "greaterThan" | "greaterOrEqual" | "lessThan" | "lessOrEqual" | "in" | "contains";
 export type CatalogFilterValue = string | number | boolean | null | Array<string | number | boolean>;
 export type CatalogFilter = { field: string; operator: CatalogFilterOperator; value: CatalogFilterValue };

@@ -26,7 +26,7 @@ The deprecated `get_storefront_library` and `search_storefront` tools are no lon
 
 ## Reusable facets
 
-`save_storefront_facet` accepts three explicit facet kinds. Numeric facets divide one measurable catalog field into at least two non-overlapping bands. Tag facets add an **Any** choice and one reusable catalog-tag filter. Named tag-group facets create one categorical facet with two or more choices; each choice can require any or all of several tags, and tag lists may overlap. Active tag groups compose with price and other filters. For example, “Add a facet so I can see what games are family friendly” maps to:
+`save_storefront_facet` accepts three explicit facet kinds. Numeric facets divide one measurable catalog field into at least two non-overlapping bands. Tag facets add an **Any** choice and one reusable catalog-tag filter. Named tag-group facets create one categorical facet with two or more choices. A choice can use backward-compatible flat `any`/`all` matching, or `matchAnyClause` for OR-of-AND matching: a game must satisfy every tag in one complete clause. Tag lists and results may overlap between named choices. Active tag groups compose with price and other filters. For example, “Add a facet so I can see what games are family friendly” maps to:
 
 ```json
 {
@@ -47,20 +47,34 @@ A reusable gift-recipient facet can be saved as:
   "groups": [
     {
       "label": "Gifts for Jason",
-      "tags": ["Puzzle", "First-Person", "Logic", "Atmospheric"],
-      "match": "any"
+      "matchAnyClause": [
+        {
+          "label": "First-person puzzlers",
+          "all": ["Puzzle", "First-Person"]
+        }
+      ]
     },
     {
       "label": "Gifts for Brian",
-      "tags": ["Strategy", "Turn-Based", "Card Game", "Deckbuilding"],
-      "match": "any"
+      "matchAnyClause": [
+        {
+          "label": "Roguelike deckbuilders",
+          "all": ["Roguelike Deckbuilder", "Card Game"]
+        },
+        {
+          "label": "Sci-fi strategy",
+          "all": ["RTS", "Strategy", "Sci-fi"]
+        }
+      ]
     }
   ],
   "allowOverlap": true
 }
 ```
 
-Selecting a group filters by its saved rule. Games can match more than one group, and each visible result identifies the group and catalog tags responsible for the match. To add a budget such as “under $20,” combine the selected gift group with a numeric `priceCents` facet; the filters are applied together.
+Selecting a group filters by its saved rule. The Jason choice cannot match a game carrying only `First-Person`; the Brian choice accepts either complete archetype without requiring both archetypes on the same game. Games can match more than one named group, and each visible result identifies the satisfied clause and tags.
+
+A clause may also provide `references` and `minimumSimilarity`. Reference titles are resolved once when the facet is saved, their strongest non-generic catalog tags are stored with the removable local facet, and later filtering does not repeat the lookup. Flat `any` and `all` groups remain supported for existing saved facets; broad `any` matching should be used only when explicitly wanted. To add a budget such as “under $20,” combine the selected gift group with a numeric `priceCents` facet; the filters are applied together.
 
 ## Agent workflow
 

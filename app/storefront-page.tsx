@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DemoSwitcher, { type WebMcpStatus } from "./demo-switcher";
 import { loadCatalogPage, type CatalogGame, type CatalogPage, type StorefrontNumericField, type StorefrontNumericFilter, type StorefrontRankingFactor, type StorefrontRankingField, type StorefrontTagGroupFilter } from "./catalog-data";
 import { applyAndVerifyStorefrontResults, buildSimilarityRecoveryAction, catalogQueryForRecommendation, qualifyRecommendationCandidates, resolveRecommendationQueryScope, similarityProfileForReference, type SimilarityRecoveryAction, type StorefrontApplyReceipt } from "./storefront-recommendation-workflow";
+import { findMatchingStorefrontTagClause, type StorefrontTagClauseFilter, type StorefrontTagReferenceSeed } from "./storefront-tag-groups";
 import "./storefront.css";
 
 const PAGE_SIZE = 12;
@@ -43,7 +44,8 @@ type FacetBand = { id: string; label: string; min?: number; max?: number };
 type NumericCustomFacet = { kind: "numeric"; id: string; label: string; field: StorefrontNumericField; bands: FacetBand[] };
 type TagCustomFacet = { kind: "tag"; id: string; label: string; tag: string };
 type TagGroupMatch = "any" | "all";
-type FacetTagGroup = { id: string; label: string; tags: string[]; match: TagGroupMatch };
+type FacetTagClause = StorefrontTagClauseFilter & { id: string };
+type FacetTagGroup = { id: string; label: string; tags: string[]; match: TagGroupMatch } | { id: string; label: string; matchAnyClause: FacetTagClause[] };
 type TagGroupsCustomFacet = { kind: "tag_groups"; id: string; label: string; groups: FacetTagGroup[]; allowOverlap: true };
 type CustomFacet = NumericCustomFacet | TagCustomFacet | TagGroupsCustomFacet;
 type ActiveTagGroupSelection = { facetId: string; facetLabel: string; group: FacetTagGroup };
@@ -246,15 +248,32 @@ const FACET_SCHEMA = {
         label: { type: "string", minLength: 1, maxLength: 40, description: "The shared facet heading shown in the storefront." },
         groups: {
           type: "array", minItems: 2, maxItems: 8,
-          description: "Named choices. Tag lists may overlap across choices.",
+          description: "Named choices. Groups may use legacy flat tags with any/all matching, OR-of-AND matchAnyClause rules, or reference-seeded alternatives. Tags and results may overlap across choices.",
           items: {
             type: "object", additionalProperties: false,
             properties: {
               label: { type: "string", minLength: 1, maxLength: 40 },
               tags: { type: "array", minItems: 1, maxItems: 12, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 } },
               match: { type: "string", enum: ["any", "all"], description: "any matches at least one configured tag; all requires every configured tag." },
+              matchAnyClause: {
+                type: "array", minItems: 1, maxItems: 3,
+                description: "Alternative clauses. A game matches the named group when it satisfies every required tag in at least one clause.",
+                items: {
+                  type: "object", additionalProperties: false,
+                  properties: {
+                    label: { type: "string", minLength: 1, maxLength: 40, description: "Optional human-readable archetype name used in match explanations." },
+                    all: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80 }, description: "Tags that must all be present for this clause." },
+                    references: { type: "array", minItems: 1, maxItems: 2, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 120 }, description: "Optional catalog games whose strongest non-generic tags seed similarity membership." },
+                    minimumSimilarity: { type: "number", minimum: 0.25, maximum: 1, default: 0.6, description: "Minimum fraction of one reference game's seed tags that must match." },
+                  },
+                  anyOf: [{ required: ["all"] }, { required: ["references"] }],
+                },
+              },
+              references: { type: "array", minItems: 1, maxItems: 3, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 120 }, description: "Shorthand for one alternative reference-seeded clause per game." },
+              minimumSimilarity: { type: "number", minimum: 0.25, maximum: 1, default: 0.6 },
             },
-            required: ["label", "tags", "match"],
+            required: ["label"],
+            anyOf: [{ required: ["tags", "match"] }, { required: ["matchAnyClause"] }, { required: ["references"] }],
           },
         },
         allowOverlap: { type: "boolean", enum: [true], description: "Tag-group membership may overlap and is always enabled." },
@@ -330,11 +349,38 @@ function BuyButton({ game, inLibrary, adding, onAdd }: { game: CatalogGame; inLi
   </button>;
 }
 
+function facetTagGroupTitle(group: FacetTagGroup) {
+  if ("tags" in group) return (group.match === "all" ? "All of: " : "Any of: ") + group.tags.join(", ");
+  return group.matchAnyClause.map((clause, index) => {
+    const parts = [
+      clause.all.length ? "all of " + clause.all.join(", ") : "",
+      clause.referenceSeeds.length ? "similar to " + clause.referenceSeeds.map((seed) => seed.title).join(" or ") : "",
+    ].filter(Boolean);
+    return (clause.label || "Clause " + (index + 1)) + ": " + parts.join(" and ");
+  }).join(" OR ");
+}
+
+function facetTagGroupSummary(group: FacetTagGroup) {
+  if ("tags" in group) return (group.match === "all" ? "All of " : "Any of ") + group.tags.length + " tags";
+  return group.matchAnyClause.length + (group.matchAnyClause.length === 1 ? " required clause" : " alternative clauses");
+}
+
 function FacetMatchReasons({ game, selections }: { game: CatalogGame; selections: ActiveTagGroupSelection[] }) {
   if (!selections.length) return null;
   const matched = new Map(game.matchedTags.map((tag) => [tag.toLocaleLowerCase(), tag]));
   return <div className="facet-match-reasons" aria-label="Why this game matches the selected groups">
-    {selections.map(({ facetId, facetLabel, group }) => {
+    {selections.flatMap(({ facetId, facetLabel, group }) => {
+      if ("matchAnyClause" in group) {
+        const clauseMatch = findMatchingStorefrontTagClause({ matchAnyClause: group.matchAnyClause }, game.matchedTags);
+        if (!clauseMatch) return [];
+        const visibleTags = clauseMatch.matchedTags.slice(0, 4);
+        const remainder = clauseMatch.matchedTags.length - visibleTags.length;
+        const referenceText = clauseMatch.matchedReferences.length ? "; similar to " + clauseMatch.matchedReferences.join(" or ") : "";
+        const explanation = clauseMatch.clauseLabel + " — all required tags: " + clauseMatch.matchedTags.join(", ") + referenceText;
+        return [<span key={facetId + ":" + group.id} title={facetLabel + " / " + group.label + " — satisfied " + explanation}>
+          <b>{group.label + " · " + clauseMatch.clauseLabel}</b><small>All: {visibleTags.join(", ")}{remainder > 0 ? " +" + remainder : ""}{clauseMatch.matchedReferences.length ? " · ref " + clauseMatch.matchedReferences[0] : ""}</small>
+        </span>];
+      }
       const matchedTags = group.tags.flatMap((tag) => {
         const canonicalTag = matched.get(tag.toLocaleLowerCase());
         return canonicalTag ? [canonicalTag] : [];
@@ -342,9 +388,9 @@ function FacetMatchReasons({ game, selections }: { game: CatalogGame; selections
       const visibleTags = matchedTags.slice(0, 4);
       const remainder = matchedTags.length - visibleTags.length;
       const explanation = (group.match === "all" ? "All required tags: " : "Matched " + (matchedTags.length === 1 ? "tag: " : "tags: ")) + matchedTags.join(", ");
-      return <span key={facetId + ":" + group.id} title={facetLabel + " / " + group.label + " — " + explanation}>
+      return [<span key={facetId + ":" + group.id} title={facetLabel + " / " + group.label + " — " + explanation}>
         <b>{group.label}</b><small>{group.match === "all" ? "All: " : "Via: "}{visibleTags.join(", ")}{remainder > 0 ? " +" + remainder : ""}</small>
-      </span>;
+      </span>];
     })}
   </div>;
 }
@@ -488,7 +534,7 @@ function waitForCurationPaint(minimumMs: number) {
   return Promise.all([minimum, paint]).then(() => undefined);
 }
 
-function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: string[], existingId?: string): CustomFacet {
+function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: string[], existingId?: string, resolvedReferences: ResolvedCatalogReference[] = []): CustomFacet {
   const label = cleanText(input.label, "", 40);
   if (input.kind !== undefined && input.kind !== "numeric" && input.kind !== "tag" && input.kind !== "tag_groups") throw new Error("The facet kind must be numeric, tag, or tag_groups.");
   const kind = input.kind === "tag_groups" || input.kind === undefined && Array.isArray(input.groups)
@@ -505,18 +551,62 @@ function normalizeCustomFacet(input: Record<string, unknown>, availableTags?: st
   if (kind === "tag_groups") {
     if (!label) throw new Error("A tag-group facet needs a valid label.");
     const canonicalTags = availableTags ? new Map(availableTags.map((tag) => [tag.toLocaleLowerCase(), tag])) : undefined;
+    const referencesByRequest = new Map(resolvedReferences.flatMap((reference) => [
+      [reference.requested.toLocaleLowerCase(), reference] as const,
+      [reference.title.toLocaleLowerCase(), reference] as const,
+    ]));
+    const canonicalize = (requestedTags: string[]) => requestedTags.map((tag) => {
+      const canonicalTag = canonicalTags?.get(tag.toLocaleLowerCase());
+      if (canonicalTags && !canonicalTag) throw new Error("The “" + tag + "” tag is not available in this catalog.");
+      return canonicalTag ?? tag;
+    });
+    const resolveSeeds = (value: Record<string, unknown>) => {
+      const persisted = storedReferenceSeeds(value.referenceSeeds);
+      const requested = normalizedReferences(value.references);
+      const resolved = requested.map((reference) => {
+        const seed = referencesByRequest.get(reference.toLocaleLowerCase());
+        if (!seed) throw new Error("The reference game “" + reference + "” could not be resolved in this catalog.");
+        return { title: seed.title, tags: seed.tags };
+      });
+      return [...persisted, ...resolved]
+        .filter((seed, index, seeds) => seeds.findIndex((candidate) => candidate.title.toLocaleLowerCase() === seed.title.toLocaleLowerCase()) === index)
+        .slice(0, 2);
+    };
     const rawGroups = Array.isArray(input.groups) ? input.groups : [];
     const groups = rawGroups.flatMap((value, index): FacetTagGroup[] => {
       if (!isRecord(value)) return [];
       const groupLabel = cleanText(value.label, "", 40);
-      const requestedTags = normalizedTags(value.tags);
-      if (!groupLabel || !requestedTags.length) return [];
-      if (value.match !== undefined && value.match !== "any" && value.match !== "all") throw new Error("Each tag group must use any or all matching.");
-      const tags = requestedTags.map((tag) => {
-        const canonicalTag = canonicalTags?.get(tag.toLocaleLowerCase());
-        if (canonicalTags && !canonicalTag) throw new Error("The “" + tag + "” tag is not available in this catalog.");
-        return canonicalTag ?? tag;
+      if (!groupLabel) return [];
+      const rawClauses = Array.isArray(value.matchAnyClause) ? value.matchAnyClause : [];
+      const matchAnyClause = rawClauses.flatMap((rawClause, clauseIndex): FacetTagClause[] => {
+        if (!isRecord(rawClause)) return [];
+        const all = canonicalize(normalizedTags(rawClause.all).slice(0, 4));
+        const referenceSeeds = resolveSeeds(rawClause);
+        if (!all.length && !referenceSeeds.length) return [];
+        const requestedSimilarity = typeof rawClause.minimumSimilarity === "number" ? rawClause.minimumSimilarity : 0.6;
+        const clauseLabel = cleanText(rawClause.label, "", 40);
+        return [{
+          id: cleanText(rawClause.id, "", 80) || slug(groupLabel) + "-clause-" + clauseIndex,
+          ...(clauseLabel ? { label: clauseLabel } : {}),
+          all,
+          referenceSeeds,
+          minimumSimilarity: Math.min(1, Math.max(0.25, requestedSimilarity)),
+        }];
       });
+      const groupReferenceSeeds = resolveSeeds(value);
+      const shorthandClauses = groupReferenceSeeds.map((seed, clauseIndex): FacetTagClause => ({
+        id: slug(groupLabel) + "-reference-" + clauseIndex,
+        label: "Similar to " + seed.title,
+        all: [],
+        referenceSeeds: [seed],
+        minimumSimilarity: Math.min(1, Math.max(0.25, typeof value.minimumSimilarity === "number" ? value.minimumSimilarity : 0.6)),
+      }));
+      const clauses = [...matchAnyClause, ...shorthandClauses].slice(0, 3);
+      if (clauses.length) return [{ id: cleanText(value.id, "", 80) || slug(groupLabel) + "-" + index, label: groupLabel, matchAnyClause: clauses }];
+      const requestedTags = normalizedTags(value.tags);
+      if (!requestedTags.length) return [];
+      if (value.match !== undefined && value.match !== "any" && value.match !== "all") throw new Error("Each tag group must use any or all matching.");
+      const tags = canonicalize(requestedTags);
       return [{ id: cleanText(value.id, "", 80) || slug(groupLabel) + "-" + index, label: groupLabel, tags, match: value.match === "all" ? "all" : "any" }];
     });
     if (groups.length < 2) throw new Error("A tag-group facet needs at least two named groups with one or more tags each.");
@@ -563,11 +653,41 @@ function normalizedTags(value: unknown) {
     .slice(0, 12);
 }
 
+function normalizedReferences(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => cleanText(item, "", 120))
+    .filter(Boolean)
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
+    .slice(0, 24);
+}
+
+type ResolvedCatalogReference = StorefrontTagReferenceSeed & { requested: string };
+
+function storedReferenceSeeds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((seed): StorefrontTagReferenceSeed[] => {
+    if (!isRecord(seed)) return [];
+    const title = cleanText(seed.title, "", 120);
+    const tags = normalizedTags(seed.tags).slice(0, 5);
+    return title && tags.length ? [{ title, tags }] : [];
+  }).slice(0, 2);
+}
+
 async function resolveCatalogTags(tags: string[]) {
+  if (!tags.length) return [];
   const response = await fetch("/api/catalog/tags?names=" + encodeURIComponent(JSON.stringify(tags)), { cache: "no-store" });
   const value = await response.json() as { tags?: string[]; error?: string };
   if (!response.ok || !Array.isArray(value.tags)) throw new Error(value.error || "The catalog tags could not be checked.");
   return value.tags;
+}
+
+async function resolveCatalogReferences(references: string[]) {
+  if (!references.length) return [];
+  const response = await fetch("/api/catalog/references?names=" + encodeURIComponent(JSON.stringify(references)), { cache: "no-store" });
+  const value = await response.json() as { references?: ResolvedCatalogReference[]; error?: string };
+  if (!response.ok || !Array.isArray(value.references)) throw new Error(value.error || "The reference games could not be checked.");
+  return value.references;
 }
 
 function normalizeCuration(input: Record<string, unknown>, recommendation: PendingRecommendation): EditorialCuration {
@@ -680,7 +800,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
     const group = facet.groups.find((item) => item.id === selectedCustomBands[facet.id]);
     return group ? [{ facetId: facet.id, facetLabel: facet.label, group }] : [];
   }), [customFacets, selectedCustomBands]);
-  const tagGroupFilters = useMemo<StorefrontTagGroupFilter[]>(() => activeTagGroupSelections.map(({ group }) => ({ tags: group.tags, match: group.match })), [activeTagGroupSelections]);
+  const tagGroupFilters = useMemo<StorefrontTagGroupFilter[]>(() => activeTagGroupSelections.map(({ group }) => "matchAnyClause" in group
+    ? { matchAnyClause: group.matchAnyClause.map(({ label, all, referenceSeeds, minimumSimilarity }) => ({ label, all, referenceSeeds, minimumSimilarity })) }
+    : { tags: group.tags, match: group.match }), [activeTagGroupSelections]);
   const ranking = presentation?.ranking ?? [];
   const ownedExclusions = useMemo(() => presentation?.excludeOwned ? [...library].slice(0, 200) : [], [library, presentation?.excludeOwned]);
   const requestKey = JSON.stringify([search, priceBand, genre, tag, requiredTags, tagGroupFilters, minPositiveRatio, minReviewCount, sort, direction, page, numericFilters, ranking, ownedExclusions]);
@@ -964,7 +1086,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
                 "Prefer curate_and_apply_storefront_results after catalog retrieval for ordinary discovery, comparison, ranking, and recommendation requests. Every app ID must come from the original recommendation set.",
                 "Use curate_storefront_results only when intentionally creating a draft. Its status is staged and requiresApply is true; never describe that draft as visible or highlighted. Use apply_storefront_results as the explicit second step for such a draft.",
                 "Before claiming a storefront update, require rendered true, the expected recommendationId, and the stated winner in featuredAppIds from a verified apply receipt.",
-                "Use save_storefront_facet only for a user-requested reusable facet. Choose kind tag for one catalog concept, kind tag_groups for two or more named multi-tag choices that may overlap, or kind numeric for non-overlapping measurable bands. Tag groups compose with price and other active filters.",
+                "Use save_storefront_facet only for a user-requested reusable facet. Choose kind tag for one catalog concept, kind tag_groups for two or more named choices that may overlap, or kind numeric for non-overlapping measurable bands. For gift profiles or distinct archetypes, use matchAnyClause: OR across clauses and all required tags within each clause. Use legacy match:any only when a broad single-tag match is explicitly wanted. Tag groups compose with price and other active filters.",
                 "Treat named games as examples of the experience the user wants. If a game or franchise is not available on Steam, search for similar games that are instead of searching for the exact franchise.",
                 "Do not offer cart, checkout, ordering, payment, installation, or account access; none of those capabilities exists.",
               ],
@@ -1352,7 +1474,7 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
       },
       {
         name: "save_storefront_facet",
-        description: "Add a user-requested reusable storefront facet. Use tag for one catalog concept, tag_groups for one categorical facet with two or more named choices made from multiple tags, or numeric for non-overlapping measurable bands. Each tag group supports any or all matching, and tags may overlap across groups. Active groups compose with price and other filters. Tag matches reflect Steam catalog metadata, not an age rating or suitability guarantee. This saves only a removable preference in this browser's local storage and does not change an account, retailer, catalog, order, or external service.",
+        description: "Add a user-requested reusable storefront facet. Use tag for one catalog concept, tag_groups for one categorical facet with two or more named choices, or numeric for non-overlapping measurable bands. Tag groups support backward-compatible flat any/all rules plus matchAnyClause rules: clauses are alternatives (OR), while every tag in a clause's all list is required (AND). Optional catalog game references seed similarity clauses at save time. Prefer matchAnyClause for gift recipients or multiple archetypes; use flat any only when broad single-tag membership is explicitly requested. Tags and results may overlap across groups. This saves only a removable preference in this browser's local storage and does not change an account, retailer, catalog, order, or external service.",
         inputSchema: FACET_SCHEMA,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, untrustedContentHint: false },
         execute: async (input: Record<string, unknown>) => {
@@ -1360,21 +1482,34 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
             const currentRuntime = storefrontRuntime;
             if (!currentRuntime) throw new Error("The storefront page is not currently available.");
             const wantsTagFacet = input.kind === "tag" || input.kind === "tag_groups" || input.kind === undefined && (typeof input.tag === "string" || Array.isArray(input.groups));
+            const facetGroups = Array.isArray(input.groups) ? input.groups.filter(isRecord) : [];
             const requestedTags = wantsTagFacet
               ? input.kind === "tag" || input.kind === undefined && typeof input.tag === "string"
                 ? [cleanText(input.tag, "", 80)].filter(Boolean)
-                : (Array.isArray(input.groups) ? input.groups : []).flatMap((group) => isRecord(group) ? normalizedTags(group.tags) : [])
+                : facetGroups.flatMap((group) => [
+                  ...normalizedTags(group.tags),
+                  ...(Array.isArray(group.matchAnyClause) ? group.matchAnyClause.flatMap((clause) => isRecord(clause) ? normalizedTags(clause.all) : []) : []),
+                ])
               : [];
-            const availableTags = wantsTagFacet ? await resolveCatalogTags(requestedTags) : undefined;
-            const facet = normalizeCustomFacet(input, wantsTagFacet ? availableTags : undefined);
+            const requestedReferences = facetGroups.flatMap((group) => [
+              ...normalizedReferences(group.references),
+              ...(Array.isArray(group.matchAnyClause) ? group.matchAnyClause.flatMap((clause) => isRecord(clause) ? normalizedReferences(clause.references) : []) : []),
+            ]);
+            const [availableTags, resolvedReferences] = wantsTagFacet
+              ? await Promise.all([resolveCatalogTags(requestedTags), resolveCatalogReferences(requestedReferences)])
+              : [undefined, []];
+            const facet = normalizeCustomFacet(input, availableTags, undefined, resolvedReferences);
             const next = [facet, ...currentRuntime.customFacets.current].slice(0, 8);
             currentRuntime.saveFacet(next);
+            const clauseCount = facet.kind === "tag_groups"
+              ? facet.groups.reduce((total, group) => total + ("matchAnyClause" in group ? group.matchAnyClause.length : 0), 0)
+              : 0;
             const message = facet.kind === "tag"
               ? "Added the local “" + facet.label + "” facet for games tagged “" + facet.tag + ".”"
               : facet.kind === "tag_groups"
-                ? "Added the local “" + facet.label + "” facet with " + facet.groups.length + " overlapping tag groups."
+                ? "Added the local “" + facet.label + "” facet with " + facet.groups.length + " overlapping tag groups" + (clauseCount ? " and " + clauseCount + " OR-of-AND clauses." : ".")
                 : "Added the local “" + facet.label + "” facet with " + facet.bands.length + " formula bands.";
-            return { content: [{ type: "text", text: message }], structuredContent: { schemaVersion: "adaptive-interfaces.storefront-facet-receipt/v2", ok: true, saved: true, storage: "local", facet } };
+            return { content: [{ type: "text", text: message }], structuredContent: { schemaVersion: "adaptive-interfaces.storefront-facet-receipt/v3", ok: true, saved: true, storage: "local", facet } };
           } catch (error) {
             return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "The custom facet could not be saved." }], structuredContent: { ok: false } };
           }
@@ -1508,9 +1643,9 @@ export default function StorefrontPage({ onWebMcpStatusChange }: StorefrontPageP
               <button type="button" className={!selectedCustomBands[facet.id] ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => { const copy = { ...selected }; delete copy[facet.id]; return copy; }); setPage(0); }}>Any</button>
               {facet.kind === "numeric" ? facet.bands.map((band) => <button type="button" className={selectedCustomBands[facet.id] === band.id ? "active" : ""} key={band.id} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: band.id })); setPage(0); }}>{band.label}</button>)
                 : facet.kind === "tag" ? <button type="button" className={selectedCustomBands[facet.id] === facet.tag ? "active" : ""} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: facet.tag })); setPage(0); }}>{facet.tag}</button>
-                  : facet.groups.map((group) => <button type="button" className={selectedCustomBands[facet.id] === group.id ? "active" : ""} key={group.id} title={(group.match === "all" ? "All of: " : "Any of: ") + group.tags.join(", ")} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: group.id })); setPage(0); }}><b>{group.label}</b><small>{group.match === "all" ? "All of " : "Any of "}{group.tags.length} tags</small></button>)}
+                  : facet.groups.map((group) => <button type="button" className={selectedCustomBands[facet.id] === group.id ? "active" : ""} key={group.id} title={facetTagGroupTitle(group)} onClick={() => { setSelectedCustomBands((selected) => ({ ...selected, [facet.id]: group.id })); setPage(0); }}><b>{group.label}</b><small>{facetTagGroupSummary(group)}</small></button>)}
             </div>
-            <small>{facet.kind === "numeric" ? fieldLabel(facet.field) : facet.kind === "tag" ? "Catalog tag" : "Named tag groups · overlap allowed"} · saved in this browser</small>
+            <small>{facet.kind === "numeric" ? fieldLabel(facet.field) : facet.kind === "tag" ? "Catalog tag" : "Named tag groups · OR alternatives · overlap allowed"} · saved in this browser</small>
           </fieldset>)}
         </aside> : null}
 

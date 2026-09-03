@@ -45,7 +45,7 @@ The Data Table Demo registers three WebMCP tools and exposes only `steam_catalog
 - `curate_and_apply_storefront_results` is the standard presentation step after retrieval. It validates the curation, applies it, and verifies the committed recommendation ID and featured app IDs before reporting success.
 - `get_taste_profile` prepares private personalization only after explicit user opt-in and only for a game the user is choosing or buying for themselves; gifts, other people, groups, and unclear recipients default to no taste personalization. It never returns the library or profile; `exclude_owned_games` returns only a count.
 - `apply_storefront_results` explicitly applies a staged draft to session-scoped search, filters, ranking, editorial presentation, and layout, then verifies the featured and visible app IDs after rendering completes.
-- `save_storefront_facet` stores a removable numeric-band or catalog-tag facet in the local browser; `remove_storefront_facet` removes one.
+- `save_storefront_facet` stores a removable numeric-band, catalog-tag, or named tag-group facet in the local browser. Named groups support backward-compatible flat rules plus OR-of-AND clauses and optional reference-game seeds; `remove_storefront_facet` removes one.
 
 Genre, tag, category, developer, publisher, and language reports use the analytics `explode` operation before grouping. Weighted tag reports can also use `tagWeight`.
 

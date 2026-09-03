@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { catalogDb } from "@/app/server/catalog-db";
+import { compileStorefrontTagGroupFilter, parseStorefrontTagGroupFilters, storefrontTagGroupTags, type StorefrontTagGroupFilter } from "@/app/storefront-tag-groups";
 
 export const runtime = "edge";
 
@@ -80,7 +81,6 @@ const RANK_NORMALIZERS: Record<keyof typeof NUMERIC_FIELDS, string> = {
 };
 
 type SqlExpression = { sql: string; values: Array<string | number> };
-type TagGroupFilter = { tags: string[]; match: "any" | "all" };
 
 function boundedInteger(value: string | null, fallback: number, minimum: number, maximum: number) {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -112,20 +112,6 @@ function normalizedTextArray(value: string | null, limit: number) {
     .filter(Boolean)
     .filter((item, index, items) => items.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
     .slice(0, limit);
-}
-
-function tagGroupFilters(value: string | null): TagGroupFilter[] {
-  return parseArray(value).flatMap((filter): TagGroupFilter[] => {
-    if (!filter || typeof filter !== "object" || Array.isArray(filter)) return [];
-    const item = filter as Record<string, unknown>;
-    const rawTags = Array.isArray(item.tags) ? item.tags : [];
-    const tags = rawTags
-      .map((tag) => String(tag).trim().replace(/\s+/g, " ").slice(0, 80))
-      .filter(Boolean)
-      .filter((tag, index, values) => values.findIndex((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()) === index)
-      .slice(0, 12);
-    return tags.length ? [{ tags, match: item.match === "all" ? "all" : "any" }] : [];
-  }).slice(0, 8);
 }
 
 function filterPrimitive(value: unknown): string | number | boolean | null | undefined {
@@ -238,7 +224,7 @@ function rankingExpression(value: string | null, intent: ReturnType<typeof inten
   return { sql: `(${terms.join(" + ")}) / ${totalWeight.toFixed(4)}`, values };
 }
 
-function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpressions>, selectedTagGroups: TagGroupFilter[]) {
+function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpressions>, selectedTagGroups: StorefrontTagGroupFilter[]) {
   const clauses: string[] = [];
   const values: Array<string | number> = [];
   const search = ftsQuery((params.get("search") ?? "").slice(0, 120));
@@ -299,14 +285,10 @@ function filters(params: URLSearchParams, intent: ReturnType<typeof intentExpres
     clauses.push("EXISTS (SELECT 1 FROM game_tags required_gt JOIN tags required_t ON required_t.id = required_gt.tag_id WHERE required_gt.app_id = g.app_id AND LOWER(required_t.name) = LOWER(?))");
     values.push(requiredTag);
   }
-  for (const group of selectedTagGroups) {
-    if (group.match === "any") {
-      clauses.push(`g.app_id IN (SELECT group_gt.app_id FROM game_tags group_gt JOIN tags group_t ON group_t.id = group_gt.tag_id WHERE LOWER(group_t.name) IN (${group.tags.map(() => "LOWER(?)").join(", ")}))`);
-      values.push(...group.tags);
-      continue;
-    }
-    clauses.push(`g.app_id IN (SELECT group_gt.app_id FROM game_tags group_gt JOIN tags group_t ON group_t.id = group_gt.tag_id WHERE LOWER(group_t.name) IN (${group.tags.map(() => "LOWER(?)").join(", ")}) GROUP BY group_gt.app_id HAVING COUNT(DISTINCT LOWER(group_t.name)) = ?)`);
-    values.push(...group.tags, group.tags.length);
+  for (const [index, group] of selectedTagGroups.entries()) {
+    const expression = compileStorefrontTagGroupFilter(group, index);
+    clauses.push(expression.sql);
+    values.push(...expression.values);
   }
   if (minPositiveRatio >= 0) {
     clauses.push("g.positive_ratio >= ?");
@@ -362,10 +344,9 @@ export async function GET(request: Request) {
     const ranking = rankingExpression(url.searchParams.get("ranking"), intent);
     const sortSql = ranking ? "rankScore" : SORT_FIELDS[sort] ?? SORT_FIELDS.ownersMax;
     const direction = ranking ? "DESC" : url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
-    const selectedTagGroups = tagGroupFilters(url.searchParams.get("tagGroupFilters"));
+    const selectedTagGroups = parseStorefrontTagGroupFilters(parseArray(url.searchParams.get("tagGroupFilters")));
     const where = filters(url.searchParams, intent, selectedTagGroups);
-    const selectedGroupTags = selectedTagGroups.flatMap((group) => group.tags)
-      .filter((tag, index, tags) => tags.findIndex((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()) === index);
+    const selectedGroupTags = storefrontTagGroupTags(selectedTagGroups);
     const matchedTagsSql = selectedGroupTags.length
       ? `COALESCE((SELECT json_group_array(name) FROM (SELECT t.name FROM game_tags matched_gt JOIN tags t ON t.id = matched_gt.tag_id WHERE matched_gt.app_id = g.app_id AND LOWER(t.name) IN (${selectedGroupTags.map(() => "LOWER(?)").join(", ")}) ORDER BY matched_gt.weight DESC, t.name)), '[]')`
       : "'[]'";
